@@ -1,4 +1,4 @@
-# Architecture technique - maquette UniCampus+ vulnérable
+# Architecture technique : maquette UniCampus+ v1
 
 Document descriptif de l'architecture déployée.
 
@@ -7,11 +7,11 @@ Document descriptif de l'architecture déployée.
 | Élément | Valeur |
 |---|---|
 | Plateforme | OpenStack (utilisation d'un sous-réseau par groupe) |
-| Orchestration | Terraform : `unicampus-vuln.yaml` |
+| Orchestration | Terraform - `unicampus-vuln.yaml` |
 | Préfixe ressources | `uc-` |
 | CIDR interne | 192.168.107.0/24 (temp : à changer quand l'OpenStack sera pret) |
 | Réseau externe | `ext-net` (existant, référencé en paramètre) |
-| Nombre de VMs | 16 (1 firewall + 1 VPN + 8 serveurs + 6 postes) |
+| Nombre de VMs | 11 (1 firewall + 1 VPN + 6 serveurs + 3 postes) |
 
 ## 2. Architecture réseau
 
@@ -33,7 +33,7 @@ Document descriptif de l'architecture déployée.
 |---|---|
 | 192.168.107.1 | Gateway Neutron |
 | 192.168.107.2 - .9 | Infrastructure réseau (firewall, VPN) |
-| 192.168.107.10 - .19 | Serveurs front-end |
+| 192.168.107.10 - .19 | Serveurs applicatifs |
 | 192.168.107.20 - .29 | Serveurs back-end (bases) |
 | 192.168.107.100 - .200 | Pool DHCP (postes clients) |
 
@@ -43,37 +43,36 @@ Document descriptif de l'architecture déployée.
 
 | Nom | Flavor | Image OS | IP fixe | Floating IP |
 |---|---|---|---|---|
-| `uc-fw-legacy` | m1.small | Debian 10 | 192.168.107.2 | oui |
-| `uc-vpn-legacy` | m1.small | Ubuntu 22.04 | 192.168.107.3 | oui |
+| `uc-fw-legacy` | m1.tiny | Debian 10 | 192.168.107.2 | oui |
+| `uc-vpn-legacy` | m1.tiny | Ubuntu 22.04 | 192.168.107.3 | oui |
 
-### 3.2 Serveurs front-end
+### 3.2 Serveurs applicatifs
 
 | Nom | Flavor | Image OS | IP fixe | Floating IP |
 |---|---|---|---|---|
-| `uc-srv-mail` | m1.small | Ubuntu 22.04 | 192.168.107.10 | oui |
-| `uc-srv-ldap` | m1.small | Ubuntu 22.04 | 192.168.107.11 | non |
-| `uc-srv-moodle` | m1.medium | Ubuntu 22.04 | 192.168.107.12 | oui |
-| `uc-srv-synapses` | m1.small | Ubuntu 22.04 | 192.168.107.13 | non |
-| `uc-web-rh` | m1.small | Ubuntu 22.04 | 192.168.107.14 | non |
-| `uc-calc-recherche` | m1.medium | Ubuntu 22.04 | 192.168.107.15 | non |
+| `uc-srv-mail` | m1.tiny | Ubuntu 22.04 | 192.168.107.10 | oui |
+| `uc-srv-ldap` | m1.tiny | Ubuntu 22.04 | 192.168.107.11 | non |
+| `uc-srv-moodle` | m1.small | Ubuntu 22.04 | 192.168.107.12 | oui |
+| `uc-web-rh` | m1.tiny | Ubuntu 22.04 | 192.168.107.14 | non |
+| `uc-calc-recherche` | m1.small | Ubuntu 22.04 | 192.168.107.15 | non |
 
 ### 3.3 Serveurs back-end
 
 | Nom | Flavor | Image OS | IP fixe | Floating IP |
 |---|---|---|---|---|
-| `uc-db-rh` | m1.small | Ubuntu 22.04 | 192.168.107.20 | non |
-| `uc-db-recherche` | m1.medium | Ubuntu 22.04 | 192.168.107.21 | non |
+| `uc-db-rh` | m1.tiny | Ubuntu 22.04 | 192.168.107.20 | non |
+
+Note : `uc-db-recherche` est fusionné dans `uc-calc-recherche` pour réduire le nombre de VMs. Le pivot front -> back sensible reste démontrable côté RH (`uc-web-rh` -> `uc-db-rh`).
 
 ### 3.4 Postes clients
 
 | Nom | Flavor | Image OS | IP | Floating IP |
 |---|---|---|---|---|
-| `uc-poste-etu-01` | m1.small | Kali Linux | DHCP | non |
-| `uc-poste-etu-02` | m1.small | Ubuntu Desktop 22.04 | DHCP | non |
-| `uc-poste-prof` | m1.small | Ubuntu Desktop 22.04 | DHCP | non |
-| `uc-poste-ens-chercheur` | m1.small | Ubuntu Desktop 22.04 | DHCP | non |
-| `uc-poste-admin` | m1.small | Ubuntu Desktop 22.04 | DHCP | non |
-| `uc-poste-dsi` | m1.small | Ubuntu Desktop 22.04 | DHCP | non |
+| `uc-poste-etu` | m1.tiny | Kali Linux | DHCP | non |
+| `uc-poste-prof` | m1.tiny | Ubuntu Desktop 22.04 | DHCP | non |
+| `uc-poste-dsi` | m1.tiny | Ubuntu Desktop 22.04 | DHCP | non |
+
+Note : `uc-poste-prof` cumule les rôles enseignant et enseignant-chercheur (mêmes creds Moodle + recherche). `uc-poste-admin` est fusionné avec `uc-poste-dsi` pour les démonstrations administratives.
 
 ### 3.5 Allocation des ressources
 
@@ -81,47 +80,42 @@ Document descriptif de l'architecture déployée.
 
 | Flavor | vCPU | RAM | Disque |
 |---|---|---|---|
+| m1.tiny | 1 | 1 Go | 10 Go |
 | m1.small | 1 | 2 Go | 20 Go |
-| m1.medium | 2 | 4 Go | 40 Go |
 
 #### Allocation par VM
 
 | VM | Flavor | vCPU | RAM | Disque |
 |---|---|---|---|---|
-| `uc-fw-legacy` | m1.small | 1 | 2 Go | 20 Go |
-| `uc-vpn-legacy` | m1.small | 1 | 2 Go | 20 Go |
-| `uc-srv-mail` | m1.small | 1 | 2 Go | 20 Go |
-| `uc-srv-ldap` | m1.small | 1 | 2 Go | 20 Go |
-| `uc-srv-moodle` | m1.medium | 2 | 4 Go | 40 Go |
-| `uc-srv-synapses` | m1.small | 1 | 2 Go | 20 Go |
-| `uc-web-rh` | m1.small | 1 | 2 Go | 20 Go |
-| `uc-calc-recherche` | m1.medium | 2 | 4 Go | 40 Go |
-| `uc-db-rh` | m1.small | 1 | 2 Go | 20 Go |
-| `uc-db-recherche` | m1.medium | 2 | 4 Go | 40 Go |
-| `uc-poste-etu-01` | m1.small | 1 | 2 Go | 20 Go |
-| `uc-poste-etu-02` | m1.small | 1 | 2 Go | 20 Go |
-| `uc-poste-prof` | m1.small | 1 | 2 Go | 20 Go |
-| `uc-poste-ens-chercheur` | m1.small | 1 | 2 Go | 20 Go |
-| `uc-poste-admin` | m1.small | 1 | 2 Go | 20 Go |
-| `uc-poste-dsi` | m1.small | 1 | 2 Go | 20 Go |
+| `uc-fw-legacy` | m1.tiny | 1 | 1 Go | 10 Go |
+| `uc-vpn-legacy` | m1.tiny | 1 | 1 Go | 10 Go |
+| `uc-srv-mail` | m1.tiny | 1 | 1 Go | 10 Go |
+| `uc-srv-ldap` | m1.tiny | 1 | 1 Go | 10 Go |
+| `uc-srv-moodle` | m1.small | 1 | 2 Go | 20 Go |
+| `uc-web-rh` | m1.tiny | 1 | 1 Go | 10 Go |
+| `uc-calc-recherche` | m1.small | 1 | 2 Go | 20 Go |
+| `uc-db-rh` | m1.tiny | 1 | 1 Go | 10 Go |
+| `uc-poste-etu` | m1.tiny | 1 | 1 Go | 10 Go |
+| `uc-poste-prof` | m1.tiny | 1 | 1 Go | 10 Go |
+| `uc-poste-dsi` | m1.tiny | 1 | 1 Go | 10 Go |
 
 #### Récapitulatif par flavor
 
 | Flavor | Nombre de VMs | vCPU cumulés | RAM cumulée | Disque cumulé |
 |---|---|---|---|---|
-| m1.small | 13 | 13 | 26 Go | 260 Go |
-| m1.medium | 3 | 6 | 12 Go | 120 Go |
+| m1.tiny | 9 | 9 | 9 Go | 90 Go |
+| m1.small | 2 | 2 | 4 Go | 40 Go |
 
 #### Total ressources requises
 
 | Ressource | Quantité |
 |---|---|
-| vCPU | 19 |
-| RAM | 38 Go |
-| Disque éphémère | 380 Go |
+| vCPU | 11 |
+| RAM | 13 Go |
+| Disque éphémère | 130 Go |
 | Floating IPs | 4 |
 | Security groups | 1 |
-| Ports Neutron avec IP fixe | 10 |
+| Ports Neutron avec IP fixe | 9 |
 | Réseaux | 1 |
 | Sous-réseaux | 1 |
 | Routeurs | 1 |
@@ -132,7 +126,7 @@ Document descriptif de l'architecture déployée.
 
 | VM | Service | Daemon | Port | Protocole | Bind |
 |---|---|---|---|---|---|
-| `uc-fw-legacy` | Routage | `iptables` + `net.ipv4.ip_forward=1` | — | — | — |
+| `uc-fw-legacy` | Routage | `iptables` + `net.ipv4.ip_forward=1` | - | - | - |
 | `uc-fw-legacy` | Administration | `openssh-server` | 22 | TCP | 0.0.0.0 |
 | `uc-vpn-legacy` | VPN distant | `pptpd` | 1723 | TCP + GRE (proto 47) | 0.0.0.0 |
 | `uc-vpn-legacy` | Administration | `openssh-server` | 22 | TCP | 0.0.0.0 |
@@ -147,26 +141,23 @@ Document descriptif de l'architecture déployée.
 | `uc-srv-ldap` | Annuaire | `slapd` | 389 | LDAP en clair | 0.0.0.0 |
 | `uc-srv-moodle` | Web | `apache2` + `php` | 80 | HTTP en clair | 0.0.0.0 |
 | `uc-srv-moodle` | Base locale | `mariadb-server` | 3306 | TCP | 127.0.0.1 |
-| `uc-srv-synapses` | Web | `apache2` + `php` | 80 | HTTP en clair | 0.0.0.0 |
-| `uc-srv-synapses` | Base locale | `mariadb-server` | 3306 | TCP | 127.0.0.1 |
 | `uc-web-rh` | Web | `apache2` + `php` | 80 | HTTP en clair | 0.0.0.0 |
 | `uc-calc-recherche` | NFS | `nfs-kernel-server` | 2049 + 111 (rpcbind) | TCP/UDP | 0.0.0.0 |
 | `uc-calc-recherche` | Samba | `smbd` | 445, 139 | TCP | 0.0.0.0 |
 | `uc-calc-recherche` | Notebook | `jupyter` | 8888 | HTTP | 0.0.0.0 |
+| `uc-calc-recherche` | Base locale | `postgresql` | 5432 | TCP | 127.0.0.1 |
 
 ### 4.3 Services back-end
 
 | VM | Service | Daemon | Port | Protocole | Bind |
 |---|---|---|---|---|---|
 | `uc-db-rh` | SGBD | `mariadb-server` | 3306 | TCP | 0.0.0.0 |
-| `uc-db-recherche` | SGBD | `postgresql` | 5432 | TCP | * |
 
 ### 4.4 Dépendances inter-services
 
 | Source | Destination | Port | Usage |
 |---|---|---|---|
 | `uc-web-rh` | `uc-db-rh:3306` | TCP | Stockage données RH |
-| `uc-calc-recherche` | `uc-db-recherche:5432` | TCP | Stockage résultats recherche |
 
 ## 5. Configuration réseau et sécurité
 
@@ -174,9 +165,9 @@ Document descriptif de l'architecture déployée.
 
 | Nom | Direction | Protocole | Ports | Source/Destination |
 |---|---|---|---|---|
-| `uc-sg-allow-all` | Ingress | TCP | 1 – 65535 | 0.0.0.0/0 |
-| `uc-sg-allow-all` | Ingress | UDP | 1 – 65535 | 0.0.0.0/0 |
-| `uc-sg-allow-all` | Ingress | ICMP | — | 0.0.0.0/0 |
+| `uc-sg-allow-all` | Ingress | TCP | 1 - 65535 | 0.0.0.0/0 |
+| `uc-sg-allow-all` | Ingress | UDP | 1 - 65535 | 0.0.0.0/0 |
+| `uc-sg-allow-all` | Ingress | ICMP | - | 0.0.0.0/0 |
 | `uc-sg-allow-all` | Egress | tous | tous | 0.0.0.0/0 |
 
 Appliqué à toutes les instances.
@@ -199,7 +190,7 @@ Appliqué à toutes les instances.
 |---|---|
 | Daemon | `pptpd` |
 | `localip` | 192.168.107.3 |
-| `remoteip` | 192.168.107.210 – .220 |
+| `remoteip` | 192.168.107.210 - .220 |
 | Authentification | CHAP, fichier `/etc/ppp/chap-secrets` |
 | Compte | `campus` / `unicampus2024` (partagé) |
 | MFA | aucun |
@@ -225,7 +216,6 @@ Schéma de comptes prévu (à peupler manuellement) : étudiants, enseignants, c
 | Service | Stockage des comptes | Hash | Politique de mot de passe |
 |---|---|---|---|
 | `uc-srv-moodle` | Table `mdl_user` (MariaDB local) | bcrypt | aucune |
-| `uc-srv-synapses` | Table `users` (MariaDB local) | MD5 | aucune |
 | `uc-web-rh` | Table sur `uc-db-rh` | SHA1 | aucune |
 | `uc-srv-mail` | Comptes Unix locaux + Dovecot | crypt | aucune |
 | `uc-vpn-legacy` | `/etc/ppp/chap-secrets` | clair | aucune |
