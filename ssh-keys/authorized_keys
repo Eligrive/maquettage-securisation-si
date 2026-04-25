@@ -1,0 +1,4 @@
+# Clés SSH des membres du groupe 11
+# Format : une clé par ligne (compatible authorized_keys)
+
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOtBnr/h4KLhr8dztFd1q0E2whoUz3nW/VKSbYnmvJmq virgile.thonnier
