@@ -3,41 +3,17 @@
 # Terraform
 Dans notre maquette il va nous falloir les .tf suivants : 
 
-- provider.tf : Le point d'entrée
 
-Rôle : Déclare que vous utilisez OpenStack et indique la version du plugin.
+* **`provider.tf`** : Configure le moteur Terraform pour qu'il sache comment discuter avec votre OpenStack (tout en attendant que GitLab CI lui donne les clés secrètes).
+* **`data.tf`** : Fait l'inventaire de ce qui existe déjà sur le cloud (vos images Ubuntu et Debian, ainsi que le réseau externe `ext-net`) pour pouvoir s'en servir.
+* **`network.tf`** : Construit votre réseau privé isolé (`uc-net-campus`), son plan d'adressage (192.168.107.0/24) et le routeur qui le connecte à internet.
+* **`security.tf`** : Met en place votre groupe de sécurité (`uc-sg-allow-all`) pour définir les règles d'ouverture des ports réseau.
+* **`keypair.tf`** : Enregistre votre clé SSH personnelle dans OpenStack pour vous garantir un accès administrateur sécurisé à toutes vos futures machines.
+* **`instances.tf`** : Le cœur de l'usine : c'est ici que l'on commande la création de vos serveurs et postes clients (incluant les instructions automatiques pour installer l'interface graphique des postes DSI et Prof).
+* **`floating_ips.tf`** : Demande des adresses IP publiques au réseau externe et "tire les câbles" pour les brancher sur vos 4 machines exposées (Firewall, VPN, Mail, Moodle).
+* **`variables.tf`** : Le panneau de contrôle qui centralise vos réglages (comme le préfixe `uc-`), vous permettant de renommer ou modifier tout le projet en changeant juste une ligne.
 
-Création/Lecture : Ni l'un ni l'autre, c'est de la configuration pure (et comme nous l'avons vu, sans aucun mot de passe écrit en dur !).
 
-- instance.tf : Le cœur du projet
-
-Rôle : C'est ici que vous déclarez la création de vos machines virtuelles (VMs).
-
-Création/Lecture : Utilise le bloc resource "openstack_compute_instance_v2". 
-
-- keypair.tf (Les clés SSH)
-
-Rôle : Permet de se connecter aux VMs une fois qu'elles sont créées, sans utiliser de mot de passe.
-
-Pratique courante : On crée une resource dans Terraform qui va prendre la clé publique (.pub) de votre ordinateur et l'injecter dans OpenStack.
-
-- security.tf (Le Pare-feu / Groupes de sécurité)
-
-Rôle : Par défaut, OpenStack bloque tout le trafic entrant. Il faut créer des règles.
-
-Pratique courante : On utilise presque toujours des resource pour créer un groupe de sécurité sur mesure (ex: ouvrir le port 22 pour le SSH, et le port 80 pour un serveur web).
-
-- flavors.tf (Le gabarit / La puissance)
-
-Rôle : Définir la taille de la VM (ex: 2 vCPU, 4 Go RAM).
-
-Pratique courante : Pareil que pour les images, les gabarits sont figés par l'admin. On utilise un bloc data pour trouver le nom du gabarit (ex: m1.small).
-
--  glance.tf (Les images OS)
-
-Rôle : Indiquer quel système d'exploitation installer (ex: Ubuntu 22.04, Debian 12).
-
-Pratique courante : On utilise un bloc data pour chercher l'image par son nom parmi celles déjà proposées par votre OpenStack.
 
 ## Gestion de la cohabitation 
 
@@ -74,6 +50,10 @@ resource "openstack_compute_instance_v2" "ma_vm" {
 }
 ```
 ## Identification et provider.tf
+
+
+
+URL d'authentification : http://137.194.208.23:5000/v3/
 
 ### Étape 1 : Générer les identifiants côté OpenStack
 
@@ -119,6 +99,86 @@ provider "openstack" {
   
 }
 ```
+
+## data.tf
+`data.tf`permet de récupérer les ressources qui existent déjà sur openstack \
+
+
+### 1. Peu importe le choix du réseau
+
+#### A. Le Réseau Externe (Internet / IP Publiques)
+* **Pourquoi :** 4 "Floating IPs" (pour le Firewall, VPN, Mail, Moodle).
+* **Le Template :**
+```hcl
+# On cherche le réseau public par son nom
+data "openstack_networking_network_v2" "ext_net" {
+  name = "ext-net" 
+}
+```
+
+#### B. Images
+* **Pourquoi :** Pour dire à Terraform sur quoi installer vos 11 machines.
+* **Le Template :**
+```hcl
+# On cherche la dernière version de l'image Ubuntu Serveur
+data "openstack_images_image_v2" "ubuntu_2204" {
+  name        = "jammy-2022-12-29"
+  most_recent = true
+}
+
+# On cherche l'image Debian pour le Firewall
+data "openstack_images_image_v2" "debian_10" {
+  name        = "debian-10"
+  most_recent = true
+}
+```
+
+#### C. Flavors
+* **Le Template :**
+```hcl
+# On vérifie l'existence du petit gabarit
+data "openstack_compute_flavor_v2" "flavor_tiny" {
+  name = "m1.tiny"
+}
+
+# On vérifie l'existence du gabarit moyen
+data "openstack_compute_flavor_v2" "flavor_small" {
+  name = "m1.small"
+}
+```
+
+---
+
+### 2. Option "Réseau Existant"
+
+Si vous décidez de ne pas créer votre bulle `uc-net-campus` isolée et de vous brancher sur un réseau déjà créé par l'administrateur, vous devez ajouter ces blocs à votre `data.tf`.
+
+#### D. Le Réseau Interne Partagé
+* **Pourquoi :** Pour trouver le gros "switch" virtuel sur lequel vous allez brancher vos 11 machines.
+* **Le Template :**
+```hcl
+data "openstack_networking_network_v2" "reseau_partage" {
+  name = "nom-du-reseau-fourni-par-admin"
+}
+```
+
+#### E. Le Sous-réseau Partagé (Optionnel mais recommandé)
+* **Pourquoi :** Si vous devez fixer des IPs précises (ex: 192.168.107.10 pour le serveur mail), Terraform a besoin de connaître l'ID exact du sous-réseau pour réserver la place.
+* **Le Template :**
+```hcl
+data "openstack_networking_subnet_v2" "subnet_partage" {
+  name       = "nom-du-sous-reseau-fourni"
+  # On s'assure de chercher dans le bon réseau parent
+  network_id = data.openstack_networking_network_v2.reseau_partage.id
+}
+```
+## network.tf
+## security.tf
+## keypair.tf
+## instances.tf
+## floating_ips.tf
+## variables.tf
+
 ## Pipeline gitlab 
 
 https://spacelift.io/blog/gitlab-terraform
