@@ -15,20 +15,20 @@ Dans notre maquette il va nous falloir les .tf suivants :
 
 Dans l'ordre on crée : 
 ### Phase 1 : les variables 
-1. **`variables.tf`
-2. **`provider.tf` 
-3. **`data.tf` 
+1. **`variables.tf`**
+2. **`provider.tf`** 
+3. **`data.tf` **
 
 ### Phase 2 : L'Environnement
-1. **`network.tf` (ou `ports.tf`) 
-2. **`security.tf` 
-3. **`keypair.tf` 
+1. **`network.tf` (ou `ports.tf`)** 
+2. **`security.tf`** 
+3. **`keypair.tf`** 
 
 ### Phase 3 : Les machines
-1. **`instances.tf` 
+1. **`instances.tf`** 
 
 ### Phase 4 : L'Ouverture au Public
-1. **`floating_ips.tf` 
+1. **`floating_ips.tf`** 
 
 
 
