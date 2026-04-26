@@ -13,6 +13,23 @@ Dans notre maquette il va nous falloir les .tf suivants :
 * **`floating_ips.tf`** : Demande des adresses IP publiques au réseau externe et "tire les câbles" pour les brancher sur vos 4 machines exposées (Firewall, VPN, Mail, Moodle).
 * **`variables.tf`** : Le panneau de contrôle qui centralise vos réglages (comme le préfixe `uc-`), vous permettant de renommer ou modifier tout le projet en changeant juste une ligne.
 
+Dans l'ordre on crée : 
+### Phase 1 : les variables 
+1. **`variables.tf`
+2. **`provider.tf` 
+3. **`data.tf` 
+
+### Phase 2 : L'Environnement
+1. **`network.tf` (ou `ports.tf`) 
+2. **`security.tf` 
+3. **`keypair.tf` 
+
+### Phase 3 : Les machines
+1. **`instances.tf` 
+
+### Phase 4 : L'Ouverture au Public
+1. **`floating_ips.tf` 
+
 
 
 ## Gestion de la cohabitation 
