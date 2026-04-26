@@ -1,5 +1,7 @@
     Ce document rassemble la documentation et les démarches effectuées et à effectuer pour un bon setup d'openstack avec terraform 
 
+[[_TOC_]] 
+
 # Terraform
 Dans notre maquette il va nous falloir les .tf suivants : 
 
@@ -17,7 +19,7 @@ Dans l'ordre on crée :
 ### Phase 1 : les variables 
 1. **`variables.tf`**
 2. **`provider.tf`** 
-3. **`data.tf` **
+3. **`data.tf`**
 
 ### Phase 2 : L'Environnement
 1. **`network.tf` (ou `ports.tf`)** 
