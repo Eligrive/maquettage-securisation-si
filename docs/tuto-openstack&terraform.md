@@ -1,15 +1,16 @@
-# Terraform + OpenStack - Documentation de référence
-
-*Document généré par ClaudeAI Anthropic*
+# Terraform + OpenStack — Documentation de référence
 
 Ce document explique :
 - comment fonctionne **OpenStack** et quelles sont les briques qu'on manipule (Keystone, Nova, Neutron, Glance, Cinder…)
 - comment fonctionne **Terraform** et quelles commandes existent
-- comment les deux se rejoignent dans le provider Terraform OpenStack
+- la **syntaxe HCL** en détail (variables, expressions, fonctions, méta-arguments)
+- la **référence des principales ressources** du provider OpenStack avec leurs arguments
+
+Il est pensé comme une documentation à consulter, pas comme un pas-à-pas.
 
 ---
 
-# Partie I - OpenStack : comprendre ce qu'on manipule
+# Partie I — OpenStack : comprendre ce qu'on manipule
 
 ## I.1 Vue d'ensemble
 
@@ -129,7 +130,7 @@ Toutes ces commandes lisent ton openrc sourcé.
 
 ---
 
-# Partie II — Terraform : les concepts
+# Partie II — Terraform : concepts et syntaxe
 
 ## II.1 Le modèle déclaratif
 
@@ -171,15 +172,253 @@ Un **module** est un dossier `.tf` qu'on instancie depuis un autre. Il regroupe 
 
 Un projet Terraform basique a un seul module implicite (le dossier courant). On découpe en sous-modules quand le projet grossit ou qu'un pattern se répète.
 
-## II.7 HCL en bref
+## II.7 Variables
 
-Le langage HCL (HashiCorp Configuration Language) est déclaratif. Les éléments à connaître :
+### Déclaration
 
-- **Bloc** : `resource "type" "nom" { … }` ou `variable "x" { … }`.
-- **Argument** : `name = "value"`.
-- **Référence** : `var.x` (variable), `local.x` (valeur locale), `module.x.y` (output d'un module), `data.type.nom.attribut` (data source), `type.nom.attribut` (resource).
-- **Interpolation dans une chaîne** : `"prefix-${var.x}"`.
-- **Boucles** : `for_each` (sur map ou set, indexé par clé) et `count` (sur entier, indexé par numéro). On préfère `for_each` parce que les clés sont stables ; `count` réordonne tout si on retire un élément du milieu.
+```hcl
+variable "name" {
+  type        = string
+  description = "Nom de la ressource"
+  default     = "demo"     # rend la variable optionnelle
+  nullable    = false      # interdit la valeur null
+  sensitive   = true       # masque la valeur dans les logs
+
+  validation {
+    condition     = length(var.name) <= 20
+    error_message = "Le nom doit faire 20 caractères max."
+  }
+}
+```
+
+Si `default` est absent, la variable est **obligatoire** et doit être fournie par une des sources ci-dessous.
+
+### Types
+
+| Type | Exemple |
+|---|---|
+| `string` | `"hello"` |
+| `number` | `42` |
+| `bool` | `true` |
+| `list(<type>)` | `["a", "b", "c"]` — liste ordonnée, doublons autorisés |
+| `set(<type>)` | `["a", "b"]` — non ordonné, sans doublons |
+| `map(<type>)` | `{ env = "prod", owner = "team" }` — toutes les valeurs ont le même type |
+| `object({...})` | `{ name = string, count = number }` — attributs typés différemment |
+| `tuple([...])` | `[string, number, bool]` — taille et types fixes |
+| `any` | n'importe quel type, à éviter |
+
+### Sources des valeurs (par priorité décroissante)
+
+1. **`-var "x=val"`** sur la ligne de commande
+2. **`-var-file=fichier.tfvars`** sur la ligne de commande (dernier fichier listé gagne)
+3. **`*.auto.tfvars`** dans le dossier (ordre alphabétique)
+4. **`terraform.tfvars`** ou **`terraform.tfvars.json`**
+5. **`TF_VAR_<nom>`** variable d'environnement
+6. **`default`** dans la déclaration
+
+Les fichiers `.tfvars` ont la même syntaxe que les `.tf` mais ne contiennent que des affectations :
+```hcl
+prefix      = "prod"
+vm_count    = 5
+allowed_ips = ["10.0.0.0/8"]
+```
+
+## II.8 Locals
+
+Un `local` est une valeur dérivée, calculée une fois et réutilisable.
+
+```hcl
+locals {
+  prefix    = "myapp"
+  full_name = "${local.prefix}-${var.environment}"
+  common_tags = {
+    project = var.project_name
+    owner   = "platform-team"
+  }
+}
+```
+
+Référence : `local.full_name`. Ne pas confondre `local.x` (valeur dérivée) et `var.x` (entrée).
+
+## II.9 Expressions
+
+### Référence
+
+```hcl
+var.x                          # variable
+local.x                        # valeur locale
+data.<type>.<nom>.<attr>       # data source
+<type>.<nom>.<attr>            # resource
+module.<nom>.<output>          # output d'un module
+each.key, each.value           # dans un for_each
+count.index                    # dans un count
+terraform.workspace            # nom du workspace courant
+path.module, path.root, path.cwd
+```
+
+### Conditionnel (ternaire)
+
+```hcl
+flavor = var.env == "prod" ? "m1.large" : "m1.small"
+```
+
+### `for` — list/map comprehension
+
+```hcl
+# Filtre + transforme une liste
+[for s in var.servers : s.name if s.role == "web"]
+
+# Construit une map
+{ for s in var.servers : s.name => s.ip }
+```
+
+### Splat — extraire un attribut d'une liste de ressources
+
+```hcl
+# Toutes les IPs des VMs créées avec for_each
+values(openstack_compute_instance_v2.web)[*].access_ip_v4
+
+# Avec count
+openstack_compute_instance_v2.web[*].id
+```
+
+### `dynamic` — bloc conditionnel ou répété
+
+Très utile quand une ressource accepte des sous-blocs répétables. Syntaxe générique :
+
+```hcl
+dynamic "<nom_du_bloc>" {
+  for_each = <collection>
+  content {
+    # attributs du bloc, accessibles via <nom_du_bloc>.value
+  }
+}
+```
+
+## II.10 Fonctions intégrées
+
+Terraform fournit ~150 fonctions. Catégories principales :
+
+| Catégorie | Exemples |
+|---|---|
+| **String** | `format`, `join`, `split`, `lower`, `upper`, `replace`, `regex`, `trimspace` |
+| **Numeric** | `min`, `max`, `abs`, `ceil`, `floor`, `parseint` |
+| **Collection** | `length`, `keys`, `values`, `lookup`, `merge`, `concat`, `flatten`, `contains`, `distinct`, `range` |
+| **Encoding** | `jsonencode`, `jsondecode`, `yamlencode`, `yamldecode`, `base64encode` |
+| **Filesystem** | `file`, `templatefile`, `fileexists`, `fileset`, `pathexpand` |
+| **IP** | `cidrhost`, `cidrsubnet`, `cidrnetmask` |
+| **Date** | `formatdate`, `timestamp`, `timeadd` |
+| **Hash** | `md5`, `sha256`, `bcrypt`, `uuid` |
+| **Type** | `tostring`, `tonumber`, `tolist`, `tomap`, `toset`, `try`, `can` |
+
+Les plus utiles au quotidien :
+
+- **`file("chemin")`** — lit un fichier en tant que string. Typique : `public_key = file("~/.ssh/id_rsa.pub")`.
+- **`templatefile("chemin", { var = val })`** — comme `file` mais interpole des variables. Idéal pour cloud-init paramétrable.
+- **`lookup(map, clé, défaut)`** — accès sécurisé à une map.
+- **`merge(map1, map2, ...)`** — fusionne des maps (clés des suivantes écrasent).
+- **`format("vm-%02d", count.index)`** — formatage style printf.
+- **`cidrsubnet("10.0.0.0/16", 8, 5)`** → `"10.0.5.0/24"` (découpe un CIDR).
+- **`try(expr1, expr2, défaut)`** — essaie chaque expression, retourne la première qui marche.
+
+## II.11 Méta-arguments des resources
+
+Cinq arguments spéciaux applicables à toute resource :
+
+### `count`
+
+Crée N copies indexées par numéro.
+
+```hcl
+resource "openstack_compute_instance_v2" "web" {
+  count = 3
+  name  = "web-${count.index}"   # web-0, web-1, web-2
+}
+```
+
+Référence : `openstack_compute_instance_v2.web[0]`.
+
+### `for_each`
+
+Crée N copies indexées par clé. Préférable à `count` car les clés sont stables : retirer un élément du milieu ne réordonne pas les autres.
+
+```hcl
+resource "openstack_compute_instance_v2" "web" {
+  for_each = {
+    "web-01" = { flavor = "m1.tiny" }
+    "web-02" = { flavor = "m1.small" }
+  }
+
+  name        = each.key
+  flavor_name = each.value.flavor
+}
+```
+
+Référence : `openstack_compute_instance_v2.web["web-01"]`.
+
+`for_each` accepte une `map(...)` ou un `set(string)`.
+
+### `depends_on`
+
+Force une dépendance explicite. Habituellement Terraform en déduit automatiquement via les références (`<type>.<nom>.attr`), mais parfois la dépendance n'est pas exprimable dans le code.
+
+```hcl
+resource "openstack_compute_instance_v2" "app" {
+  # ...
+  depends_on = [openstack_blockstorage_volume_v3.data]
+}
+```
+
+### `lifecycle`
+
+Contrôle fin du cycle de vie. Quatre options :
+
+| Option | Effet |
+|---|---|
+| `create_before_destroy = true` | Crée le remplaçant avant de détruire l'ancien (utile pour zéro downtime) |
+| `prevent_destroy = true` | Bloque tout `destroy` ou recréation. Garde-fou pour les ressources critiques |
+| `ignore_changes = [attr1, attr2]` | Ignore les modifications externes sur ces attributs |
+| `replace_triggered_by = [refs]` | Force une recréation quand les ressources listées changent |
+
+```hcl
+resource "openstack_compute_instance_v2" "db" {
+  # ...
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes  = [user_data]
+  }
+}
+```
+
+### `provider`
+
+Sélectionne quelle config provider utiliser quand il y en a plusieurs (alias).
+
+```hcl
+provider "openstack" {
+  alias  = "secondary"
+  region = "RegionTwo"
+}
+
+resource "openstack_compute_instance_v2" "vm" {
+  provider = openstack.secondary
+  # ...
+}
+```
+
+## II.12 Outputs
+
+```hcl
+output "web_ip" {
+  value       = openstack_networking_floatingip_v2.web.address
+  description = "IP publique du serveur web"
+  sensitive   = false   # passe à true pour les secrets
+}
+```
+
+Affichage : à la fin de `apply`, ou via `terraform output`. Récupération machine-readable : `terraform output -json`, ou valeur unique : `terraform output -raw web_ip`.
+
+Les outputs d'un module sont accessibles via `module.<nom>.<output>`.
 
 ---
 
@@ -258,7 +497,7 @@ Options utiles :
 
 ### `terraform destroy`
 
-Détruit toutes les ressources gérées par le state. Demande confirmation, sauf avec `-auto-approve`. Équivalent fonctionnel à `terraform apply` avec un code vide.
+D�truit toutes les ressources gérées par le state. Demande confirmation, sauf avec `-auto-approve`. Équivalent fonctionnel à `terraform apply` avec un code vide.
 
 Options utiles :
 - `-target=type.nom` : détruit uniquement cette ressource (et ses dépendantes). Risqué, à utiliser avec précaution.
@@ -279,7 +518,7 @@ Liste les ressources gérées par le state, par leur adresse (`type.nom` ou `typ
 
 ### `terraform state show <adresse>`
 
-Détaille une ressource spécifique : tous ses attributs tels qu'ils sont dans le state.
+D�taille une ressource spécifique : tous ses attributs tels qu'ils sont dans le state.
 
 ### `terraform state rm <adresse>`
 
@@ -477,9 +716,291 @@ Sources possibles pour les valeurs sensibles, par ordre de préférence :
 
 ---
 
-# Partie V — Référence rapide
+# Partie V — Référence du provider OpenStack
 
-## V.1 Variables d'environnement Terraform les plus utiles
+Cette partie liste les arguments principaux des ressources les plus utilisées. La doc officielle complète est sur `registry.terraform.io/providers/terraform-provider-openstack/openstack/latest/docs`.
+
+Convention des tableaux : ✓ = requis, — = optionnel, *attribut* en italique = renvoyé par OpenStack après création (ne pas le définir, le lire).
+
+## V.1 Compute (Nova)
+
+### `openstack_compute_instance_v2`
+
+| Argument | Type | Req. | Description |
+|---|---|---|---|
+| `name` | string | ✓ | Nom de la VM |
+| `image_id` | string | — | ID de l'image Glance (préférer à `image_name`) |
+| `image_name` | string | — | Nom de l'image |
+| `flavor_id` | string | — | ID du flavor |
+| `flavor_name` | string | — | Nom du flavor |
+| `key_pair` | string | — | Nom de la keypair injectée |
+| `security_groups` | list(string) | — | Liste de noms de SG (à mettre uniquement si pas de `port` explicite) |
+| `availability_zone` | string | — | AZ Nova ciblée |
+| `network` | block | — | Bloc(s) réseau, voir ci-dessous |
+| `block_device` | block | — | Bloc(s) de boot from volume |
+| `metadata` | map(string) | — | Tags clé/valeur stockés par Nova |
+| `user_data` | string | — | Script cloud-init exécuté au premier boot |
+| `config_drive` | bool | — | Force l'usage du config drive plutôt que metadata service |
+| `power_state` | string | — | `active`, `shutoff`, `paused`, `suspended` |
+| `stop_before_destroy` | bool | — | Stoppe la VM avant destruction (utile pour les snapshots) |
+| `force_delete` | bool | — | `terraform destroy` force même si Nova est lent |
+| *`access_ip_v4`* | string | — | Première IP IPv4 (utile en output) |
+| *`access_ip_v6`* | string | — | Première IP IPv6 |
+| *`id`* | string | — | UUID de la VM |
+
+L'image et le flavor doivent être renseignés via leur `_id` ou leur `_name` — pas les deux.
+
+**Bloc `network`** (un par interface) :
+
+| Argument | Description |
+|---|---|
+| `uuid` | ID du network — option DHCP |
+| `port` | ID du port Neutron explicite — option IP fixe |
+| `name` | Nom du network (alternative à `uuid`) |
+| `fixed_ip_v4` | IP à demander dans le réseau |
+| `access_network` | Marque cette interface comme l'IP d'accès principale |
+
+**Bloc `block_device`** (boot from volume) :
+
+| Argument | Description |
+|---|---|
+| `uuid` | ID de la source (image/volume/snapshot) |
+| `source_type` | `image`, `volume`, `snapshot`, `blank` |
+| `destination_type` | `local` ou `volume` |
+| `volume_size` | Taille en Go |
+| `boot_index` | 0 pour le disque de boot |
+| `delete_on_termination` | Détruit le volume avec la VM |
+
+### `openstack_compute_keypair_v2`
+
+| Argument | Type | Req. | Description |
+|---|---|---|---|
+| `name` | string | ✓ | Nom de la keypair |
+| `public_key` | string | — | Clé publique. Si absente, OpenStack en génère une |
+| *`private_key`* | string | — | Clé privée si générée par OpenStack |
+| *`fingerprint`* | string | — | Empreinte MD5 |
+
+### `openstack_compute_volume_attach_v2`
+
+| Argument | Type | Req. | Description |
+|---|---|---|---|
+| `instance_id` | string | ✓ | ID de la VM |
+| `volume_id` | string | ✓ | ID du volume Cinder |
+| `device` | string | — | Chemin de device (`/dev/vdb`) — souvent ignoré, OpenStack décide |
+| *`id`* | string | — | Identifiant composé `instance_id/attach_id` |
+
+## V.2 Networking (Neutron)
+
+### `openstack_networking_network_v2`
+
+| Argument | Type | Req. | Description |
+|---|---|---|---|
+| `name` | string | — | Nom (un network sans nom est techniquement valide) |
+| `description` | string | — | Description |
+| `admin_state_up` | bool | — | `true` par défaut |
+| `shared` | bool | — | Partagé entre projets (admin only) |
+| `external` | bool | — | Network externe (admin only) |
+| `mtu` | number | — | MTU |
+| `port_security_enabled` | bool | — | SG appliqués aux ports de ce network |
+| `qos_policy_id` | string | — | Policy QoS Neutron |
+| `dns_domain` | string | — | Domaine DNS pour les ports |
+| `tags` | set(string) | — | Tags Neutron |
+
+### `openstack_networking_subnet_v2`
+
+| Argument | Type | Req. | Description |
+|---|---|---|---|
+| `network_id` | string | ✓ | Network parent |
+| `cidr` | string | — | CIDR (ex: `10.0.0.0/24`). Requis sauf si `subnetpool_id` fourni |
+| `name` | string | — | Nom |
+| `ip_version` | number | — | `4` (défaut) ou `6` |
+| `gateway_ip` | string | — | IP de la passerelle. Par défaut, première IP utilisable |
+| `no_gateway` | bool | — | Pas de passerelle |
+| `enable_dhcp` | bool | — | DHCP activé (`true` par défaut) |
+| `dns_nameservers` | list(string) | — | Serveurs DNS injectés via DHCP |
+| `allocation_pool` | block | — | Pool DHCP. Bloc(s) avec `start` et `end` |
+| `subnetpool_id` | string | — | Subnet pool pour allocation auto du CIDR |
+| `prefix_length` | number | — | Taille de préfixe (avec `subnetpool_id`) |
+| `tags` | set(string) | — | Tags |
+
+### `openstack_networking_port_v2`
+
+| Argument | Type | Req. | Description |
+|---|---|---|---|
+| `network_id` | string | ✓ | Network parent |
+| `name` | string | — | Nom |
+| `admin_state_up` | bool | — | `true` par défaut |
+| `mac_address` | string | — | MAC custom (sinon généré) |
+| `fixed_ip` | block | — | Bloc(s) avec `subnet_id` + `ip_address` pour IP fixe |
+| `security_group_ids` | set(string) | — | IDs des SG appliqués au port |
+| `no_security_groups` | bool | — | Pas de SG (utile pour les ports d'infra) |
+| `allowed_address_pairs` | block | — | Permet d'usurper d'autres IPs/MACs (HA, VRRP) |
+| `port_security_enabled` | bool | — | Désactive complètement les SG si `false` |
+| `device_owner` | string | — | Type de device (`compute:nova`, `network:router_interface`…) |
+| `device_id` | string | — | ID du device qui possède le port |
+| *`all_fixed_ips`* | list(string) | — | Toutes les IPs assignées |
+
+### `openstack_networking_router_v2`
+
+| Argument | Type | Req. | Description |
+|---|---|---|---|
+| `name` | string | — | Nom |
+| `admin_state_up` | bool | — | `true` par défaut |
+| `external_network_id` | string | — | Network externe pour le SNAT |
+| `enable_snat` | bool | — | NAT sortant (`true` par défaut si externe) |
+| `external_fixed_ip` | block | — | Forcer une IP précise sur l'interface externe |
+| `distributed` | bool | — | Mode DVR (admin only) |
+| `availability_zone_hints` | list(string) | — | AZ préférées |
+| `tags` | set(string) | — | Tags |
+
+### `openstack_networking_router_interface_v2`
+
+| Argument | Type | Req. | Description |
+|---|---|---|---|
+| `router_id` | string | ✓ | ID du routeur |
+| `subnet_id` | string | — | ID du subnet à connecter (option 1) |
+| `port_id` | string | — | ID d'un port existant (option 2) |
+
+### `openstack_networking_floatingip_v2`
+
+| Argument | Type | Req. | Description |
+|---|---|---|---|
+| `pool` | string | ✓ | Nom du network externe (ex: `ext-net`) |
+| `description` | string | — | Description |
+| `port_id` | string | — | Port à associer directement (sinon utiliser une ressource d'association) |
+| `fixed_ip` | string | — | IP fixe interne ciblée si le port en a plusieurs |
+| `subnet_id` | string | — | Subnet du pool si plusieurs |
+| `dns_name` | string | — | Nom DNS |
+| `dns_domain` | string | — | Domaine DNS |
+| `tags` | set(string) | — | Tags |
+| *`address`* | string | — | IP allouée |
+
+### `openstack_networking_floatingip_associate_v2`
+
+Association séparée — utile quand on veut découpler la durée de vie de la FIP de son association.
+
+| Argument | Type | Req. | Description |
+|---|---|---|---|
+| `floating_ip` | string | ✓ | Adresse IP flottante (string, pas l'ID) |
+| `port_id` | string | ✓ | Port cible |
+| `fixed_ip` | string | — | IP fixe précise du port si plusieurs |
+
+### `openstack_networking_secgroup_v2`
+
+| Argument | Type | Req. | Description |
+|---|---|---|---|
+| `name` | string | ✓ | Nom |
+| `description` | string | — | Description |
+| `delete_default_rules` | bool | — | Supprime les règles d'egress par défaut |
+| `tags` | set(string) | — | Tags |
+
+### `openstack_networking_secgroup_rule_v2`
+
+| Argument | Type | Req. | Description |
+|---|---|---|---|
+| `security_group_id` | string | ✓ | SG parent |
+| `direction` | string | ✓ | `ingress` ou `egress` |
+| `ethertype` | string | ✓ | `IPv4` ou `IPv6` |
+| `protocol` | string | — | `tcp`, `udp`, `icmp`, `any`, ou numéro |
+| `port_range_min` | number | — | Port début (ignoré pour ICMP) |
+| `port_range_max` | number | — | Port fin |
+| `remote_ip_prefix` | string | — | CIDR source/destination |
+| `remote_group_id` | string | — | SG source (alternative au CIDR) |
+| `description` | string | — | Description |
+
+`remote_ip_prefix` et `remote_group_id` sont mutuellement exclusifs.
+
+## V.3 Block Storage (Cinder)
+
+### `openstack_blockstorage_volume_v3`
+
+| Argument | Type | Req. | Description |
+|---|---|---|---|
+| `size` | number | ✓* | Taille en Go (sauf si `snapshot_id` ou `source_vol_id`) |
+| `name` | string | — | Nom |
+| `description` | string | — | Description |
+| `availability_zone` | string | — | AZ Cinder |
+| `image_id` | string | — | Crée le volume depuis une image |
+| `snapshot_id` | string | — | Crée depuis un snapshot |
+| `source_vol_id` | string | — | Clone d'un volume existant |
+| `volume_type` | string | — | Type Cinder (HDD, SSD…) selon le cloud |
+| `metadata` | map(string) | — | Métadonnées |
+| `multiattach` | bool | — | Permet l'attachement multi-VM |
+| `enable_online_resize` | bool | — | Autorise le resize sans détacher |
+
+## V.4 Images (Glance)
+
+Tu crées rarement des images en Terraform — généralement, tu les lis. Mais la ressource existe :
+
+### `openstack_images_image_v2` (resource)
+
+| Argument | Type | Req. | Description |
+|---|---|---|---|
+| `name` | string | ✓ | Nom |
+| `image_source_url` | string | — | URL distante à télécharger |
+| `local_file_path` | string | — | Fichier local à uploader |
+| `container_format` | string | ✓ | `bare` la plupart du temps |
+| `disk_format` | string | ✓ | `qcow2`, `raw`, `vmdk`… |
+| `min_disk_gb` | number | — | Taille minimum de disque |
+| `min_ram_mb` | number | — | RAM minimum |
+| `visibility` | string | — | `private`, `shared`, `community`, `public` |
+| `tags` | set(string) | — | Tags |
+| `web_download` | bool | — | Téléchargement direct depuis l'URL côté Glance |
+
+## V.5 Data sources les plus utiles
+
+### `openstack_images_image_v2`
+
+| Argument | Description |
+|---|---|
+| `name` | Nom exact ou regex |
+| `name_regex` | Pattern de nom |
+| `most_recent` | Si plusieurs matches, prend la plus récente |
+| `visibility` | `public`, `private`… |
+| `owner` | ID du projet propriétaire |
+| `tag` | Filtre par tag |
+
+Attributs renvoyés : `id`, `size_bytes`, `min_disk_gb`, `min_ram_mb`, `properties`…
+
+### `openstack_compute_flavor_v2`
+
+| Argument | Description |
+|---|---|
+| `flavor_id` | ID exact |
+| `name` | Nom exact |
+| `min_ram` / `min_disk` / `min_vcpus` | Filtrage |
+
+Attributs : `id`, `ram`, `vcpus`, `disk`, `ephemeral`, `is_public`.
+
+### `openstack_networking_network_v2`
+
+| Argument | Description |
+|---|---|
+| `name` | Nom |
+| `network_id` | ID exact |
+| `external` | Filtre les networks externes |
+| `tags` | Tags requis |
+
+### `openstack_networking_subnet_v2`
+
+| Argument | Description |
+|---|---|
+| `name` | Nom |
+| `cidr` | CIDR |
+| `network_id` | Network parent |
+| `subnet_id` | ID exact |
+
+### `openstack_compute_keypair_v2`
+
+| Argument | Description |
+|---|---|
+| `name` | Nom de la keypair |
+
+---
+
+# Partie VI — Référence rapide
+
+## VI.1 Variables d'environnement Terraform les plus utiles
 
 | Variable | Effet |
 |---|---|
@@ -489,7 +1010,7 @@ Sources possibles pour les valeurs sensibles, par ordre de préférence :
 | `TF_INPUT=0` | Désactive les prompts interactifs |
 | `TF_CLI_ARGS_apply="-auto-approve"` | Ajoute des flags à `apply` automatiquement |
 
-## V.2 Variables d'environnement OpenStack les plus utiles
+## VI.2 Variables d'environnement OpenStack les plus utiles
 
 Lues automatiquement par le provider :
 
@@ -501,8 +1022,10 @@ Lues automatiquement par le provider :
 | `OS_PROJECT_NAME` | Projet courant |
 | `OS_USER_DOMAIN_NAME`, `OS_PROJECT_DOMAIN_NAME` | Domaines (souvent `Default`) |
 | `OS_REGION_NAME` | Région |
+| `OS_AUTH_TYPE=v3applicationcredential` | Mode application credentials |
+| `OS_APPLICATION_CREDENTIAL_ID` / `_SECRET` | Identifiants application credential |
 
-## V.3 Fichiers d'un projet Terraform
+## VI.3 Fichiers d'un projet Terraform
 
 | Fichier | Rôle | Versionner ? |
 |---|---|---|
@@ -524,7 +1047,7 @@ secrets.tfvars
 *.tfplan
 ```
 
-## V.4 Liens
+## VI.4 Liens
 
 - Documentation du provider OpenStack : `registry.terraform.io/providers/terraform-provider-openstack/openstack/latest/docs`
 - Documentation HCL : `developer.hashicorp.com/terraform/language`
