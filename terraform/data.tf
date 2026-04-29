@@ -1,6 +1,6 @@
 data "openstack_networking_network_v2" "ext_net" {
-    name = "provider"
-    external = true
+  name     = var.external_network_name 
+  external = true
 }
 
 # OS utilisé par le firewall obsolète
