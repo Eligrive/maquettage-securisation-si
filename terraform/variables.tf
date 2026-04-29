@@ -18,3 +18,9 @@ variable "resource_prefix" {
   type        = string
   default     = "uc"
 }
+
+variable "ssh_public_key" {
+  type        = string
+  description = "Clé SSH publique injectée dans les VMs"
+  sensitive   = false
+}
