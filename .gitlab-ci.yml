@@ -1,0 +1,49 @@
+stages:
+  - lint_and_validate
+  - plan
+  - apply
+
+# ---------------------------------------------------------
+# STAGE 1 : S'exécute sur TOUTES les branches (feat, develop, main)
+# ---------------------------------------------------------
+# Ce job ne crée rien. Il vérifie juste que votre code est 
+# syntaxiquement correct et bien indenté.
+terraform_check:
+  stage: lint_and_validate
+  image: hashicorp/terraform:latest
+  script:
+    # -backend=false permet d'initier sans se connecter à OpenStack
+    - terraform init -backend=false
+    - terraform fmt -check
+    - terraform validate
+
+# ---------------------------------------------------------
+# STAGE 2 : Le brouillon (Ne crée rien non plus)
+# ---------------------------------------------------------
+# Ce job va lire OpenStack et vous dire ce qu'il COMPTE faire, 
+# sans le faire. Utile quand vous ouvrez une Merge Request.
+terraform_plan:
+  stage: plan
+  image: hashicorp/terraform:latest
+  script:
+    - terraform init
+    - terraform plan
+  rules:
+    # S'exécute uniquement sur develop, main, ou lors d'une Merge Request
+    - if: '$CI_COMMIT_BRANCH == "develop" || $CI_COMMIT_BRANCH == "main" || $CI_MERGE_REQUEST_IID'
+
+# ---------------------------------------------------------
+# STAGE 3 : La création réelle (Strictement MANUEL)
+# ---------------------------------------------------------
+# Ce job est bloqué. Il apparaîtra dans GitLab avec une icône "Play" (▶️).
+# Il attendra indéfiniment que vous cliquiez dessus.
+terraform_apply:
+  stage: apply
+  image: hashicorp/terraform:latest
+  script:
+    - terraform init
+    - terraform apply -auto-approve
+  rules:
+    # N'apparaît QUE sur develop et main, et nécessite un clic humain
+    - if: '$CI_COMMIT_BRANCH == "develop" || $CI_COMMIT_BRANCH == "main"'
+      when: manual
