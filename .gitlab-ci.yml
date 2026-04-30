@@ -10,7 +10,9 @@ stages:
 # syntaxiquement correct et bien indenté.
 terraform_check:
   stage: lint_and_validate
-  image: hashicorp/terraform:latest
+  image:
+    name: hashicorp/terraform:latest # (Rappel: préférez une version fixe comme 1.6.0)
+    entrypoint: [""]
   script:
     # -backend=false permet d'initier sans se connecter à OpenStack
     - terraform init -backend=false
@@ -24,7 +26,9 @@ terraform_check:
 # sans le faire. Utile quand vous ouvrez une Merge Request.
 terraform_plan:
   stage: plan
-  image: hashicorp/terraform:latest
+  image:
+    name: hashicorp/terraform:latest # (Rappel: préférez une version fixe comme 1.6.0)
+    entrypoint: [""]
   script:
     - terraform init
     - terraform plan
@@ -39,7 +43,9 @@ terraform_plan:
 # Il attendra indéfiniment que vous cliquiez dessus.
 terraform_apply:
   stage: apply
-  image: hashicorp/terraform:latest
+  image:
+    name: hashicorp/terraform:latest # (Rappel: préférez une version fixe comme 1.6.0)
+    entrypoint: [""]
   script:
     - terraform init
     - terraform apply -auto-approve
