@@ -15,11 +15,6 @@ data "openstack_images_image_v2" "ubuntu22" {
     most_recent = true
 }
 
-# OS pour le poste de l'étudiant
-data "openstack_images_image_v2" "kali" {
-  name = "kali"
-  most_recent = true
-}
 
 # Taille des VM
 data "openstack_compute_flavor_v2" "tiny" {
