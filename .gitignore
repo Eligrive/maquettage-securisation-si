@@ -1,0 +1,15 @@
+# State Terraform — ne JAMAIS commiter (contient des secrets)
+*.tfstate
+*.tfstate.backup
+*.tfstate.*.backup
+
+# Cache local du init
+.terraform/
+
+# Plans sauvegardés
+*.tfplan
+
+# Variables avec valeurs secrètes
+*.auto.tfvars
+secrets.tfvars
+terraform.tfvars
