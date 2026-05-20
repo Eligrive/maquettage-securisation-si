@@ -115,7 +115,7 @@ Note : `uc-poste-prof` cumule les rôles enseignant et enseignant-chercheur (mê
 | Disque éphémère | 130 Go |
 | Floating IPs | 4 |
 | Security groups | 1 |
-| Ports Neutron avec IP fixe | 9 |
+| Ports Neutron avec IP fixe | 8 |
 | Réseaux | 1 |
 | Sous-réseaux | 1 |
 | Routeurs | 1 |
