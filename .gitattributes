@@ -1,0 +1,7 @@
+# Traiter les documents binaires comme binaires (pas de conversion EOL)
+*.pdf   binary
+*.xlsx  binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
