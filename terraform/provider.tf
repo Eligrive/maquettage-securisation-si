@@ -12,5 +12,5 @@ terraform {
 }
 
 provider "openstack" {
-   # Les crédentials seront initalisés dans la pipeline CI/CD de gitlab.
+  # Les crédentials seront initalisés dans la pipeline CI/CD de gitlab.
 }

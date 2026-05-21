@@ -1,3 +1,8 @@
+# Fichiers Terraform et scripts shell : toujours en LF (terraform fmt l'exige,
+# cloud-init casse avec des CRLF dans les scripts).
+*.tf    text eol=lf
+*.sh    text eol=lf
+
 # Traiter les documents binaires comme binaires (pas de conversion EOL)
 *.pdf   binary
 *.xlsx  binary
