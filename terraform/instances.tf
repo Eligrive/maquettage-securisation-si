@@ -43,9 +43,12 @@ locals {
 
   # Postes clients en DHCP : pas de port explicite
   vms_dhcp = {
+    # NB : l'image Kali de l'OpenStack école n'est qu'un ISO (non bootable en
+    # cloud), on déploie donc Ubuntu 22.04 ; l'outillage offensif sera installé
+    # via le provisioning du poste attaquant.
     poste-etu = {
       flavor_id = data.openstack_compute_flavor_v2.tiny.id
-      image_id  = data.openstack_images_image_v2.kali.id
+      image_id  = data.openstack_images_image_v2.ubuntu22.id
     }
     poste-prof = {
       flavor_id = data.openstack_compute_flavor_v2.tiny.id
