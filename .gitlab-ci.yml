@@ -3,6 +3,15 @@ stages:
   - plan
   - apply
 
+# Les fichiers .tf sont dans le sous-dossier terraform/ : on s'y place avant
+# chaque job (sinon terraform tourne à la racine et ne voit aucune config).
+variables:
+  TF_ROOT: "${CI_PROJECT_DIR}/terraform"
+
+default:
+  before_script:
+    - cd "${TF_ROOT}"
+
 # ---------------------------------------------------------
 # STAGE 1 : S'exécute sur TOUTES les branches (feat, develop, main)
 # ---------------------------------------------------------
