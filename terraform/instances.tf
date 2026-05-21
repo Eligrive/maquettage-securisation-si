@@ -70,6 +70,9 @@ resource "openstack_compute_instance_v2" "fixed" {
   flavor_id = each.value.flavor_id
   key_pair  = openstack_compute_keypair_v2.admin.name
 
+  # Provisioning : script de service + assets (cf. cloudinit.tf)
+  user_data = data.cloudinit_config.vm[each.key].rendered
+
   # Le port Neutron porte déjà l'IP fixe + le security group
   network {
     port = openstack_networking_port_v2.fixed[each.key].id
@@ -83,6 +86,9 @@ resource "openstack_compute_instance_v2" "dhcp" {
   image_id  = each.value.image_id
   flavor_id = each.value.flavor_id
   key_pair  = openstack_compute_keypair_v2.admin.name
+
+  # Provisioning : script de service + assets (cf. cloudinit.tf)
+  user_data = data.cloudinit_config.vm[each.key].rendered
 
   # Security group appliqué directement (pas de port explicite ici)
   security_groups = [openstack_networking_secgroup_v2.allow_all.name]
