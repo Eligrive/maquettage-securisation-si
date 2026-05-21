@@ -6,14 +6,14 @@ locals {
   dhcp_pool_end   = cidrhost(var.subnet_cidr, 200)
 
   fixed_ips = {
-    fw-legacy      = cidrhost(var.subnet_cidr, 2)   # 192.168.107.2
-    vpn-legacy     = cidrhost(var.subnet_cidr, 3)   # 192.168.107.3
-    srv-mail       = cidrhost(var.subnet_cidr, 10)  # 192.168.107.10
-    srv-ldap       = cidrhost(var.subnet_cidr, 11)  # 192.168.107.11
-    srv-moodle     = cidrhost(var.subnet_cidr, 12)  # 192.168.107.12
-    web-rh         = cidrhost(var.subnet_cidr, 14)  # 192.168.107.14
-    calc-recherche = cidrhost(var.subnet_cidr, 15)  # 192.168.107.15
-    db-rh          = cidrhost(var.subnet_cidr, 20)  # 192.168.107.20
+    fw-legacy      = cidrhost(var.subnet_cidr, 2)  # 192.168.107.2
+    vpn-legacy     = cidrhost(var.subnet_cidr, 3)  # 192.168.107.3
+    srv-mail       = cidrhost(var.subnet_cidr, 10) # 192.168.107.10
+    srv-ldap       = cidrhost(var.subnet_cidr, 11) # 192.168.107.11
+    srv-moodle     = cidrhost(var.subnet_cidr, 12) # 192.168.107.12
+    web-rh         = cidrhost(var.subnet_cidr, 14) # 192.168.107.14
+    calc-recherche = cidrhost(var.subnet_cidr, 15) # 192.168.107.15
+    db-rh          = cidrhost(var.subnet_cidr, 20) # 192.168.107.20
   }
 }
 
