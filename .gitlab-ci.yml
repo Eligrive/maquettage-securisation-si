@@ -7,10 +7,28 @@ stages:
 # chaque job (sinon terraform tourne à la racine et ne voit aucune config).
 variables:
   TF_ROOT: "${CI_PROJECT_DIR}/terraform"
+  # Nom du state dans le backend Terraform managé par GitLab
+  TF_STATE_NAME: "default"
+  TF_ADDRESS: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/terraform/state/${TF_STATE_NAME}"
 
 default:
   before_script:
     - cd "${TF_ROOT}"
+
+# Init avec le backend HTTP du state managé GitLab (auth via CI_JOB_TOKEN).
+# NB : terraform plan/apply nécessitent en plus les credentials OpenStack
+#      (OS_AUTH_URL, OS_USERNAME, OS_PASSWORD, OS_PROJECT_NAME, OS_REGION_NAME,
+#       OS_USER_DOMAIN_NAME, OS_PROJECT_DOMAIN_NAME) en variables CI/CD.
+.tf_init_backend: &tf_init_backend >-
+  terraform init
+  -backend-config="address=${TF_ADDRESS}"
+  -backend-config="lock_address=${TF_ADDRESS}/lock"
+  -backend-config="unlock_address=${TF_ADDRESS}/lock"
+  -backend-config="username=gitlab-ci-token"
+  -backend-config="password=${CI_JOB_TOKEN}"
+  -backend-config="lock_method=POST"
+  -backend-config="unlock_method=DELETE"
+  -backend-config="retry_wait_min=5"
 
 # ---------------------------------------------------------
 # STAGE 1 : S'exécute sur TOUTES les branches (feat, develop, main)
@@ -39,7 +57,7 @@ terraform_plan:
     name: hashicorp/terraform:latest # (Rappel: préférez une version fixe comme 1.6.0)
     entrypoint: [""]
   script:
-    - terraform init
+    - *tf_init_backend
     - terraform plan
   rules:
     # S'exécute uniquement sur develop, main, ou lors d'une Merge Request
@@ -56,7 +74,7 @@ terraform_apply:
     name: hashicorp/terraform:latest # (Rappel: préférez une version fixe comme 1.6.0)
     entrypoint: [""]
   script:
-    - terraform init
+    - *tf_init_backend
     - terraform apply -auto-approve
   rules:
     # N'apparaît QUE sur develop et main, et nécessite un clic humain
