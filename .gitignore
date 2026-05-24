@@ -13,3 +13,10 @@
 *.auto.tfvars
 secrets.tfvars
 terraform.tfvars
+
+# Artefacts Python / scripts analyse-risque
+__pycache__/
+analyse-risque/.build_a4_graphs/
+# Fichiers de verrouillage Excel
+~$*.xlsx
+~$*.xlsm
