@@ -20,6 +20,9 @@ clouds.yaml
 *openrc.sh
 app-cred-*
 
+# Configuration locale Claude Code
+.claude/
+
 # Artefacts Python / scripts analyse-risque
 __pycache__/
 analyse-risque/.build_a4_graphs/
