@@ -151,7 +151,9 @@ so_data = [
             ("t2", "e1", False),  # BDD directe -> modif notes
             ("t1", "e2", False),  # accès légitime -> vol sujets aussi possible
         ],
-        "bsc": ["BS01 Moodle", "BS02 BDD Moodle", "BS04 LDAP", "BS13 Réseau campus"],
+        "bsc": ["BS01 Plateforme Moodle", "BS02 BDD Moodle",
+                "BS04 Annuaire LDAP", "BS08 Poste étudiant",
+                "BS13 Réseau campus"],
         "vulns": [
             "Bind LDAP anonyme sur uc-srv-ldap (slapd sans TLS)",
             "WiFi étudiant et serveurs sur le même VLAN 192.168.107.0/24 (pas de cloisonnement)",
@@ -163,9 +165,9 @@ so_data = [
         "code": "SO2",
         "title": "Cybercriminel déploie un rançongiciel",
         "ss_parent": "SS2",
-        "sr": "SR-B Cybercriminel motivé financièrement",
+        "sr": "SR-B Cybercriminel organisé",
         "ov": "Bloquer le SI pour obtenir une rançon",
-        "er_target": "ER01",
+        "er_target": "ER06, ER04",
         "gravity": "G4",
         "vraisemblance": "V4",
         "vraisemblance_label": "Certain ou déjà produit",
@@ -206,7 +208,10 @@ so_data = [
             ("t3", "e1", False),  # latéral -> chiffrement
             ("e1", "e3", False),  # destruction sauvegardes pendant chiffrement
         ],
-        "bsc": ["BS01 Moodle", "BS05 Web RH", "BS07 BDD RH", "BS08 Mail", "BS10 NFS recherche", "BS13 Réseau campus"],
+        "bsc": ["BS01 Plateforme Moodle", "BS02 BDD Moodle",
+                "BS03 Messagerie", "BS05 Calcul/stockage recherche",
+                "BS06 Application web RH", "BS07 BDD RH",
+                "BS10 Poste DSI", "BS13 Réseau campus"],
         "vulns": [
             "Clé SSH d'admin DSI stockée en clair sur uc-poste-dsi (/home/ubuntu/.ssh/)",
             "Sudo NOPASSWD pour ubuntu sur toutes les VMs",
@@ -219,9 +224,9 @@ so_data = [
         "code": "SO3",
         "title": "Cybercriminel exfiltre les données personnelles",
         "ss_parent": "SS3",
-        "sr": "SR-B Cybercriminel motivé financièrement",
+        "sr": "SR-B Cybercriminel organisé",
         "ov": "Exfiltrer la base RH et données personnelles",
-        "er_target": "ER02",
+        "er_target": "ER01",
         "gravity": "G4",
         "vraisemblance": "V3",
         "vraisemblance_label": "Très vraisemblable",
@@ -261,7 +266,8 @@ so_data = [
             ("t3", "e2", False),  # pivot Moodle -> données étudiants
             ("e1", "e4", False),  # en exfiltrant on garde aussi les hashs
         ],
-        "bsc": ["BS05 Web RH", "BS07 BDD RH", "BS04 LDAP", "BS01 Moodle"],
+        "bsc": ["BS04 Annuaire LDAP", "BS06 Application web RH",
+                "BS07 BDD RH", "BS11 Passerelle périmétrique"],
         "vulns": [
             "Injection SQL non corrigée dans le portail uc-web-rh",
             "uc-db-rh MariaDB exposée 0.0.0.0:3306, hashs en SHA1 sans sel",
@@ -274,9 +280,9 @@ so_data = [
         "code": "SO4",
         "title": "Acteur étatique exfiltre le patrimoine scientifique",
         "ss_parent": "SS4",
-        "sr": "SR-C Acteur étatique (APT)",
+        "sr": "SR-C Acteur étatique / concurrent (APT)",
         "ov": "Exfiltrer les résultats de recherche sensibles",
-        "er_target": "ER04",
+        "er_target": "ER02",
         "gravity": "G3",
         "vraisemblance": "V2",
         "vraisemblance_label": "Vraisemblable",
@@ -321,7 +327,8 @@ so_data = [
             ("t4", "e1", False),
             ("e1", "e3", False),  # exfil + sabotage subtil
         ],
-        "bsc": ["BS09 calc-recherche", "BS10 NFS recherche", "BS11 PostgreSQL recherche", "BS12 Postes recherche"],
+        "bsc": ["BS05 Calcul/stockage recherche",
+                "BS09 Poste enseignant-chercheur", "BS13 Réseau campus"],
         "vulns": [
             "NFS et Samba exposés sans authentification sur uc-calc-recherche",
             "Jupyter sans token ni mot de passe sur 0.0.0.0:8888",
@@ -334,7 +341,7 @@ so_data = [
         "code": "SO5",
         "title": "Personnel mécontent détourne la paie",
         "ss_parent": "SS5",
-        "sr": "SR-D Personnel mécontent / insider",
+        "sr": "SR-E Personnel mécontent ou ex-personnel",
         "ov": "Détourner sa paie ou celle de collègues",
         "er_target": "ER05",
         "gravity": "G3",
@@ -371,7 +378,7 @@ so_data = [
             ("t1", "e2", False),
             ("t1", "e3", False),
         ],
-        "bsc": ["BS05 Web RH", "BS07 BDD RH"],
+        "bsc": ["BS06 Application web RH", "BS07 BDD RH"],
         "vulns": [
             "Pas de séparation des privilèges côté application RH (un seul rôle)",
             "Comptes non révoqués au départ (pas de processus IAM)",
@@ -383,9 +390,9 @@ so_data = [
         "code": "SO6",
         "title": "Personnel mécontent détruit par vengeance",
         "ss_parent": "SS6",
-        "sr": "SR-D Personnel mécontent / insider",
+        "sr": "SR-E Personnel mécontent ou ex-personnel",
         "ov": "Détruire les données critiques par vengeance",
-        "er_target": "ER01",
+        "er_target": "ER05, ER09",
         "gravity": "G3",
         "vraisemblance": "V2",
         "vraisemblance_label": "Vraisemblable",
@@ -419,7 +426,8 @@ so_data = [
             ("t2", "e1", False),
             ("t1", "e2", False),
         ],
-        "bsc": ["BS05 Web RH", "BS07 BDD RH", "BS09 calc-recherche", "BS10 NFS recherche"],
+        "bsc": ["BS05 Calcul/stockage recherche",
+                "BS06 Application web RH", "BS07 BDD RH"],
         "vulns": [
             "Sudo NOPASSWD pour ubuntu sur toutes les VMs (élévation triviale)",
             "Compte VPN partagé jamais changé (présent dans email DSI exfiltrable)",
