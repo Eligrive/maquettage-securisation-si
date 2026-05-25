@@ -29,4 +29,9 @@ resource "openstack_networking_floatingip_associate_v2" "public" {
 
   floating_ip = openstack_networking_floatingip_v2.public[each.key].address
   port_id     = openstack_networking_port_v2.fixed[each.key].id
+
+  # Dépendance implicite que Terraform ne peut pas déduire : sans l'interface
+  # routeur reliant le subnet au réseau externe, Neutron refuse d'attacher
+  # un FIP au port avec ExternalGatewayForFloatingIPNotFound.
+  depends_on = [openstack_networking_router_interface_v2.campus]
 }
