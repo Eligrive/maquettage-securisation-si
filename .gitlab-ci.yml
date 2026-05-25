@@ -17,8 +17,15 @@ default:
 
 # Init avec le backend HTTP du state managé GitLab (auth via CI_JOB_TOKEN).
 # NB : terraform plan/apply nécessitent en plus les credentials OpenStack
-#      (OS_AUTH_URL, OS_USERNAME, OS_PASSWORD, OS_PROJECT_NAME, OS_REGION_NAME,
-#       OS_USER_DOMAIN_NAME, OS_PROJECT_DOMAIN_NAME) en variables CI/CD.
+#      (application credential "gitlab-ci-unicampus") en variables CI/CD :
+#        - OS_AUTH_URL
+#        - OS_AUTH_TYPE=v3applicationcredential
+#        - OS_APPLICATION_CREDENTIAL_ID      (masked, protected)
+#        - OS_APPLICATION_CREDENTIAL_SECRET  (masked, protected)
+#        - OS_REGION_NAME
+#        - OS_INTERFACE=public
+#      Et la clé SSH injectée dans les VMs :
+#        - TF_VAR_ssh_public_key
 .tf_init_backend: &tf_init_backend >-
   terraform init
   -backend-config="address=${TF_ADDRESS}"

@@ -14,6 +14,12 @@
 secrets.tfvars
 terraform.tfvars
 
+# Credentials OpenStack (clouds.yaml, openrc.sh téléchargés depuis Horizon)
+# → ne JAMAIS commiter, même "vidés" : à garder dans ~/.config/openstack/
+clouds.yaml
+*openrc.sh
+app-cred-*
+
 # Artefacts Python / scripts analyse-risque
 __pycache__/
 analyse-risque/.build_a4_graphs/
