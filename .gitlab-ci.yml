@@ -82,7 +82,10 @@ terraform_apply:
     entrypoint: [""]
   script:
     - *tf_init_backend
-    - terraform apply -auto-approve
+    # -parallelism=2 : créer les VMs 2 par 2 au lieu de 10 par 10 (défaut)
+    # pour éviter "No valid host was found" lors d'un burst de scheduling
+    # sur l'OpenStack mutualisé de l'école (capacité compute partagée).
+    - terraform apply -auto-approve -parallelism=2
   rules:
     # N'apparaît QUE sur develop et main, et nécessite un clic humain
     - if: '$CI_COMMIT_BRANCH == "develop" || $CI_COMMIT_BRANCH == "main"'
