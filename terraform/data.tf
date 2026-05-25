@@ -15,11 +15,7 @@ data "openstack_images_image_v2" "ubuntu22" {
   most_recent = true
 }
 
-# Taille des VM
-data "openstack_compute_flavor_v2" "tiny" {
-  name = "m1.tiny"
-}
-
+# Taille des VM : toutes les instances utilisent m1.small (cf. note instances.tf).
 data "openstack_compute_flavor_v2" "small" {
   name = "m1.small"
 }
