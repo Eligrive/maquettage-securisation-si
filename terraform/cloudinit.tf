@@ -42,7 +42,18 @@ data "cloudinit_config" "vm" {
     }
   }
 
-  # Partie 2 : script de configuration du service
+  # Partie 2 : bootstrap commun (SSH password auth, cf. _bootstrap.sh)
+  # Skip pour fw-legacy (Debian 10, géré par son propre script)
+  dynamic "part" {
+    for_each = each.key != "fw-legacy" ? [1] : []
+    content {
+      content_type = "text/x-shellscript"
+      filename     = "00-bootstrap.sh"
+      content      = file("${path.module}/scripts/_bootstrap.sh")
+    }
+  }
+
+  # Partie 3 : script de configuration du service
   part {
     content_type = "text/x-shellscript"
     filename     = "setup-${each.key}.sh"

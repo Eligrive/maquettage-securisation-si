@@ -12,12 +12,22 @@ apt-get install -y nfs-common smbclient firefox 2>/dev/null || \
 
 cat > /home/ubuntu/identifiants.txt <<'EOF'
 === Identifiants UniCampus+ (poste enseignant) ===
-Moodle    : http://192.168.107.12   login jdupont / unicampus2024
-Messagerie: 192.168.107.10 (IMAP)   login jdupont / unicampus2024
-Recherche : //192.168.107.15/recherche (Samba, invite)
-Jupyter   : http://192.168.107.15:8888 (sans mot de passe)
+Tous les services utilisent le MEME mot de passe (pas de SSO -> dérive
+"un mot de passe par utilisateur, valable partout").
+
+Moodle      : http://192.168.107.12     login jdupont / unicampus2024
+Messagerie  : 192.168.107.10 (IMAP/25)  login jdupont / unicampus2024
+LDAP        : ldap://192.168.107.11     uid=jdupont,ou=people,... / unicampus2024
+Recherche   : //192.168.107.15/recherche (Samba, guest)
+Jupyter     : http://192.168.107.15:8888 (sans mot de passe)
+SSH labo    : ssh jdupont@192.168.107.15                          / unicampus2024
+SSH mail    : ssh jdupont@192.168.107.10                          / unicampus2024
+SSH moodle  : ssh jdupont@192.168.107.12                          / unicampus2024
 EOF
 chown ubuntu:ubuntu /home/ubuntu/identifiants.txt
 chmod 0644 /home/ubuntu/identifiants.txt
+
+# --- Compte Unix nominatif (cred reuse) ---
+useradd -m -s /bin/bash jdupont 2>/dev/null || true; echo 'jdupont:unicampus2024' | chpasswd
 
 echo "uc-poste-prof provisioning done"

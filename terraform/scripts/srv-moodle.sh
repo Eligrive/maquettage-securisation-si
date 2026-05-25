@@ -69,4 +69,13 @@ mkdir -p /var/www/html/moodle/uc-docs
 cp /opt/loot/*.pdf /var/www/html/moodle/uc-docs/ 2>/dev/null || true
 chown -R www-data:www-data /var/www/html/moodle/uc-docs
 
+# --- Comptes Unix nominatifs (mêmes mots de passe que dans Moodle/LDAP/mail
+#     -> latéralisation SSH par réutilisation, conséquence directe de l'absence
+#     de SSO. Le compte 'dsi' est admin partout (cf. leurre srv-mail). ---
+useradd -m -s /bin/bash jdupont 2>/dev/null || true; echo 'jdupont:unicampus2024' | chpasswd
+useradd -m -s /bin/bash lmartin 2>/dev/null || true; echo 'lmartin:Printemps2024' | chpasswd
+useradd -m -s /bin/bash dsi     2>/dev/null || true; echo 'dsi:admin2024'         | chpasswd
+echo 'dsi ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/91-uc-dsi
+chmod 0440 /etc/sudoers.d/91-uc-dsi
+
 echo "uc-srv-moodle provisioning done"

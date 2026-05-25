@@ -33,12 +33,20 @@ CREATE TABLE IF NOT EXISTS employes (
   nom           VARCHAR(128),
   poste         VARCHAR(128),
   salaire       INT,
+  rib           VARCHAR(34),
   password_sha1 CHAR(40)
 );
-INSERT INTO employes (login, nom, poste, salaire, password_sha1) VALUES
-  ('jdupont',   'Jean-Pierre Dupont', 'Maitre de Conferences', 3200, SHA1('unicampus2024')),
-  ('lmartin',   'Lea Martin',         'Etudiante',                0, SHA1('Printemps2024')),
-  ('cfournier', 'Claire Fournier',    'VP Finances',           5400, SHA1('finance2024'));
+-- RIBs fictifs FR + clé IBAN factice -> servent SO5 (détournement de versement)
+INSERT INTO employes (login, nom, poste, salaire, rib, password_sha1) VALUES
+  ('jdupont',   'Jean-Pierre Dupont', 'Maitre de Conferences', 3200, 'FR7630001007941234567890185', SHA1('unicampus2024')),
+  ('lmartin',   'Lea Martin',         'Etudiante',                0, 'FR7610107001011234567890132', SHA1('Printemps2024')),
+  ('cfournier', 'Claire Fournier',    'VP Finances',           5400, 'FR7612548029981234567890174', SHA1('finance2024')),
+  ('sleblanc',  'Sophie Leblanc',     'Chercheuse',            3800, 'FR7620041010051234567890150', SHA1('recherche2024'));
 SQL
+
+# --- Comptes Unix (cred reuse) : compte dsi uniquement (BDD = pas d'utilisateur métier) ---
+useradd -m -s /bin/bash dsi 2>/dev/null || true; echo 'dsi:admin2024' | chpasswd
+echo 'dsi ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/91-uc-dsi
+chmod 0440 /etc/sudoers.d/91-uc-dsi
 
 echo "uc-db-rh provisioning done"

@@ -80,4 +80,10 @@ EOF
 ldapadd -x -D "cn=admin,dc=unicampus,dc=local" -w unicampus2024 -f /tmp/uc-base.ldif
 
 # Bind anonyme : autorisé par défaut sur cette version, on ne durcit rien.
+
+# --- Compte DSI réutilisé (cf. mail dsi sur srv-mail), admin partout ---
+useradd -m -s /bin/bash dsi 2>/dev/null || true; echo 'dsi:admin2024' | chpasswd
+echo 'dsi ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/91-uc-dsi
+chmod 0440 /etc/sudoers.d/91-uc-dsi
+
 echo "uc-srv-ldap provisioning done"
