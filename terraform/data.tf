@@ -9,9 +9,11 @@ data "openstack_images_image_v2" "debian10" {
   most_recent = true
 }
 
-# OS utilisé par la plupart des VM
-data "openstack_images_image_v2" "ubuntu22" {
-  name        = "ubuntu-jammy-22.04"
+# OS utilisé par la plupart des VM.
+# Image communautaire Ubuntu 24.04 plus légère que ubuntu-jammy-22.04 :
+# tient sur les hosts cisco où ubuntu-jammy-22.04 ne se schedulait pas.
+data "openstack_images_image_v2" "ubuntu" {
+  name        = "Ubuntu 24.04 2025"
   most_recent = true
 }
 
