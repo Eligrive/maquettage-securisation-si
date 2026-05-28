@@ -23,9 +23,9 @@ resource "openstack_networking_floatingip_v2" "public" {
 resource "openstack_networking_floatingip_associate_v2" "public" {
   for_each = local.fw_dmz_ips
 
-  floating_ip      = openstack_networking_floatingip_v2.public[each.key].address
-  port_id          = openstack_networking_port_v2.fw_dmz.id
-  fixed_ip_address = each.value
+  floating_ip = openstack_networking_floatingip_v2.public[each.key].address
+  port_id     = openstack_networking_port_v2.fw_dmz.id
+  fixed_ip    = each.value
 
   # Sans l'interface routeur reliant la DMZ au réseau externe, Neutron
   # refuse d'attacher un FIP avec ExternalGatewayForFloatingIPNotFound.
