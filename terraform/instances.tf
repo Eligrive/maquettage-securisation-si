@@ -79,8 +79,13 @@ resource "openstack_compute_instance_v2" "fixed" {
   key_pair          = openstack_compute_keypair_v2.admin.name
   availability_zone = "cisco"
 
-  # Provisioning : script de service + assets (cf. cloudinit.tf)
-  user_data = data.cloudinit_config.vm[each.key].rendered
+  # Provisioning : script de service + assets (cf. cloudinit.tf).
+  # Cas particulier fw-legacy : cloud-init 18.3 (Debian 10) échoue sur le
+  # multipart MIME mono-part généré par cloudinit_config (le handler
+  # ShellScriptPartHandler n'enregistre pas le script -> jamais exécuté ->
+  # default route reste en boucle sur .2 et fw-legacy ne sort plus).
+  # On envoie le script brut : cloud-init détecte le shebang et l'exécute.
+  user_data = each.key == "fw-legacy" ? file("${path.module}/scripts/fw-legacy.sh") : data.cloudinit_config.vm[each.key].rendered
 
   # Le port Neutron porte déjà l'IP fixe + le security group
   network {
