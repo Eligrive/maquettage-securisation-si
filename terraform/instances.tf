@@ -87,9 +87,19 @@ resource "openstack_compute_instance_v2" "fixed" {
   # On envoie le script brut : cloud-init détecte le shebang et l'exécute.
   user_data = each.key == "fw-legacy" ? file("${path.module}/scripts/fw-legacy.sh") : data.cloudinit_config.vm[each.key].rendered
 
-  # Le port Neutron porte déjà l'IP fixe + le security group
+  # Interface campus (eth0 sur toutes les VMs).
   network {
     port = openstack_networking_port_v2.fixed[each.key].id
+  }
+
+  # Interface DMZ pour fw-legacy uniquement (eth1). C'est ce qui lui permet
+  # d'être périmétrique : il a un pied côté Internet (via la DMZ et le
+  # routeur Neutron) et un pied côté campus.
+  dynamic "network" {
+    for_each = each.key == "fw-legacy" ? [openstack_networking_port_v2.fw_dmz.id] : []
+    content {
+      port = network.value
+    }
   }
 }
 

@@ -1,37 +1,33 @@
 # floating_ips.tf
-# Floating IPs pour les VMs exposées sur le réseau externe (cf. architecture §7.1)
-#   uc-fw-legacy   -> SSH admin
-#   uc-vpn-legacy  -> PPTP 1723/tcp + GRE
-#   uc-srv-mail    -> SMTP 25, IMAP 143
-#   uc-srv-moodle  -> HTTP 80
-#   uc-web-rh      -> HTTP 80 (exposition externe nécessaire pour démontrer SO3 :
-#                    le chemin retenu commence par "port scan externe + SQLi
-#                    sur uc-web-rh"). Vulnérabilité volontaire : une appli RH
-#                    interne ne devrait jamais être exposée à Internet.
-
-locals {
-  # VMs à exposer publiquement.
-  # Chaque clé doit exister dans local.fixed_ips (network.tf) car on attache
-  # la floating IP au port Neutron correspondant.
-  floating_vms = ["fw-legacy", "vpn-legacy", "srv-mail", "srv-moodle", "web-rh"]
-}
+# Floating IPs : toutes attachées au port DMZ de fw-legacy, sur une IP
+# fixe distincte (cf. local.fw_dmz_ips dans network.tf). Chaque IP fixe
+# DMZ est dédiée à un service ; fw-legacy fait le DNAT iptables vers la
+# VM cible côté campus.
+#
+# Cette topologie rend fw-legacy périmétrique : tout l'ingress externe
+# arrive sur fw-legacy avant d'être routé vers les VMs internes.
+#
+#   FIP fw-legacy → 10.0.0.2 → SSH admin (local sur fw-legacy)
+#   FIP vpn       → 10.0.0.3 → DNAT vers 192.168.107.3   (PPTP 1723 + GRE)
+#   FIP mail      → 10.0.0.4 → DNAT vers 192.168.107.10  (SMTP/IMAP/POP3)
+#   FIP moodle    → 10.0.0.5 → DNAT vers 192.168.107.12  (HTTP 80)
+#   FIP web-rh    → 10.0.0.6 → DNAT vers 192.168.107.14  (HTTP 80, expo vuln SO3)
 
 resource "openstack_networking_floatingip_v2" "public" {
-  for_each = toset(local.floating_vms)
+  for_each = local.fw_dmz_ips
 
-  # Le pool est le nom du réseau externe (ext-net), récupéré dans data.tf
   pool        = data.openstack_networking_network_v2.ext_net.name
   description = "${var.resource_prefix}-fip-${each.key}"
 }
 
 resource "openstack_networking_floatingip_associate_v2" "public" {
-  for_each = toset(local.floating_vms)
+  for_each = local.fw_dmz_ips
 
-  floating_ip = openstack_networking_floatingip_v2.public[each.key].address
-  port_id     = openstack_networking_port_v2.fixed[each.key].id
+  floating_ip      = openstack_networking_floatingip_v2.public[each.key].address
+  port_id          = openstack_networking_port_v2.fw_dmz.id
+  fixed_ip_address = each.value
 
-  # Dépendance implicite que Terraform ne peut pas déduire : sans l'interface
-  # routeur reliant le subnet au réseau externe, Neutron refuse d'attacher
-  # un FIP au port avec ExternalGatewayForFloatingIPNotFound.
-  depends_on = [openstack_networking_router_interface_v2.campus]
+  # Sans l'interface routeur reliant la DMZ au réseau externe, Neutron
+  # refuse d'attacher un FIP avec ExternalGatewayForFloatingIPNotFound.
+  depends_on = [openstack_networking_router_interface_v2.dmz]
 }

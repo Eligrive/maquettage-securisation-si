@@ -15,9 +15,11 @@ et de référence pour la démonstration des attaques
 
 ## 1. Vue d'ensemble
 
-11 instances déployées sur OpenStack, toutes dans le même réseau privé
-`uc-net-campus` (192.168.107.0/24), reproduisant l'absence de segmentation
-réseau décrite par l'énoncé.
+11 instances déployées sur OpenStack, toutes dans le réseau privé campus
+`uc-net-campus` (192.168.107.0/24) — modélise l'absence de segmentation
+interne décrite par l'énoncé. Un second réseau `uc-net-dmz`
+(10.0.0.0/24) sert de zone tampon entre fw-legacy et le routeur Neutron,
+ce qui rend fw-legacy périmétrique (cf. §2.1).
 
 | Élément | Valeur |
 |---|---|
@@ -26,53 +28,101 @@ réseau décrite par l'énoncé.
 | Backend Terraform | HTTP managé GitLab (state name `default`) |
 | Pipeline | `.gitlab-ci.yml` (check → plan → apply manuel) |
 | Préfixe ressources | `uc-` |
-| CIDR interne | 192.168.107.0/24 |
+| CIDR campus | 192.168.107.0/24 |
+| CIDR DMZ | 10.0.0.0/24 |
 | Réseau externe | `provider` (variable `external_network_name`) |
 | Nombre de VMs | 11 (1 firewall + 1 VPN + 6 serveurs + 3 postes) |
-| Floating IPs | 5 (fw, vpn, mail, moodle, web-rh) |
+| Floating IPs | 5 (fw, vpn, mail, moodle, web-rh) — **toutes sur fw-legacy DMZ** |
 | Security groups | 1 (`uc-sg-allow-all`) |
 
 ## 2. Réseau et exposition externe
 
-### 2.1 Sous-réseau interne
+### 2.1 Topologie DMZ + campus
+
+fw-legacy est un **vrai pare-feu périmétrique inline** : il a deux
+interfaces et tout l'ingress comme l'egress externe le traversent.
+
+```
+                    ext-net (provider)
+                          │
+                  ┌───────┴────────┐
+                  │ routeur Neutron │
+                  │   DMZ .1        │
+                  └───────┬────────┘
+                          │ DMZ 10.0.0.0/24
+                       [5 FIPs]
+                          │
+                     fw-legacy
+                 (DMZ .2-.6  ⇆  campus .2)
+                          │ campus 192.168.107.0/24
+            ┌─────────┬───┴───┬────────┬───────┐
+           .3        .10     .12      .14    .20  …
+        vpn-legacy srv-mail moodle  web-rh  db-rh
+```
 
 | Élément | Valeur | Code Terraform |
 |---|---|---|
-| Network Neutron | `uc-net-campus` | [network.tf](../terraform/network.tf) |
-| Subnet CIDR | `192.168.107.0/24` | [network.tf](../terraform/network.tf) |
-| **Gateway DHCP (annoncée aux VMs)** | **`192.168.107.2` (= fw-legacy)** | `local.subnet_gateway` |
-| IP du routeur Neutron (interne) | `192.168.107.1` | port explicite `router_internal` |
-| Pool DHCP | `192.168.107.100–200` | calculé via `cidrhost` |
+| Subnet campus | `uc-net-campus` / `192.168.107.0/24` | [network.tf](../terraform/network.tf) |
+| **Gateway DHCP campus** | **`192.168.107.2` (= fw-legacy)** | `local.subnet_gateway` |
+| **router_interface sur campus** | **aucune** (volontaire) | — |
+| Subnet DMZ | `uc-net-dmz` / `10.0.0.0/24` | [network.tf](../terraform/network.tf) |
+| Gateway DMZ | `10.0.0.1` (routeur Neutron) | `local.dmz_router_ip` |
+| Interface fw-legacy côté DMZ | `10.0.0.2` (primary) + alias `.3-.6` | `openstack_networking_port_v2.fw_dmz` |
+| Pool DHCP campus | `192.168.107.100–200` | calculé via `cidrhost` |
 | DNS forwarders | `8.8.8.8`, `1.1.1.1` | [network.tf](../terraform/network.tf) |
-| Routeur Neutron | `uc-router-campus` (attaché au `provider`) | [network.tf](../terraform/network.tf) |
+| Routeur Neutron | `uc-router-campus` (DMZ uniquement, attaché au `provider`) | [network.tf](../terraform/network.tf) |
 
-**fw-legacy est inline pour l'egress** : la passerelle annoncée par DHCP
-sur le subnet est `.2` (fw-legacy), pas `.1` (routeur Neutron). Toutes les
-VMs envoient donc leur trafic sortant Internet vers fw-legacy, qui le
-forwarde au routeur Neutron à `.1`. fw-legacy a `ip_forward=1` et iptables
-en politique `ACCEPT` (firewall obsolète qui ne filtre rien — cf. énoncé
-"firewall obsolète, règles incohérentes"). Le routeur Neutron a son
-interface forcée à `.1` via un port explicite `uc-port-router-internal`
-pour éviter le conflit avec fw-legacy à `.2`.
+**Pourquoi ça force le passage par fw-legacy** :
 
-**Ce que fw-legacy capte** (et laisse passer) :
-- ✅ Tout le trafic sortant VM → Internet (DNS, HTTP, apt-get, exfiltration…)
-- ❌ Trafic entrant des floating IPs (Neutron DNAT direct vers la VM)
-- ❌ Trafic VM ↔ VM dans le même subnet (passe en L2 direct, contourne fw-legacy)
+1. **Egress** — le subnet campus n'a plus de `router_interface` Neutron.
+   Le seul next-hop sortant connu des VMs est leur gateway DHCP, qui
+   pointe sur fw-legacy `.2`. fw-legacy `ip_forward=1`, MASQUERADE sur
+   l'interface DMZ, default route via `10.0.0.1`. Le routeur Neutron sort
+   ensuite vers Internet via la FIP de fw-legacy `.2`.
+2. **Ingress (Floating IPs)** — les 5 FIPs sont toutes attachées au port
+   DMZ de fw-legacy, chacune sur une `fixed_ip_address` distincte
+   (`10.0.0.2` à `10.0.0.6`). fw-legacy reçoit le trafic externe et le
+   redirige vers la VM cible par DNAT iptables. Le subnet campus n'ayant
+   pas de `router_interface`, Neutron refuserait d'attacher une FIP
+   directement à une VM interne — c'est ce qui garantit techniquement le
+   passage par fw-legacy.
+3. **VM ↔ VM interne** — reste en L2 direct (même subnet, aucun L3 entre
+   elles). fw-legacy **ne voit pas** ce trafic, c'est volontaire et
+   modélise "pas de cloisonnement réseau interne" décrit par l'énoncé.
 
-Cette dernière limite est **volontaire** : elle modélise l'absence de
-cloisonnement réseau interne décrite par l'énoncé. fw-legacy est un
-**pare-feu périmétrique** obsolète, pas un firewall de segmentation interne.
+**Politique iptables** : `INPUT/FORWARD/OUTPUT ACCEPT` (firewall obsolète
+qui ne filtre rien, cf. énoncé). Seules les translations NAT (DNAT
+ingress, MASQUERADE bidirectionnel) sont configurées, c'est-à-dire le
+minimum vital pour que le routage fonctionne.
+
+**Mapping des Floating IPs → DNAT campus** (cf. `local.fw_dmz_ips`) :
+
+| Alias DMZ fw-legacy | Service | VM campus cible |
+|---|---|---|
+| `10.0.0.2` | SSH 22 (admin fw-legacy) | local (pas de DNAT) |
+| `10.0.0.3` | PPTP 1723/tcp + GRE 47 | `192.168.107.3` (vpn-legacy) |
+| `10.0.0.4` | SMTP 25, IMAP 143, POP3 110 | `192.168.107.10` (srv-mail) |
+| `10.0.0.5` | HTTP 80 | `192.168.107.12` (srv-moodle) |
+| `10.0.0.6` | HTTP 80 | `192.168.107.14` (web-rh) |
 
 ### 2.2 Plan d'adressage IP fixe
 
+**Campus (192.168.107.0/24)** — pas de gateway Neutron, `.1` est libre :
+
 | Plage | Usage |
 |---|---|
-| .1 | Gateway Neutron |
-| .2 – .9 | Infrastructure réseau (firewall, VPN) |
+| .2 – .9 | Infrastructure réseau (firewall `.2`, VPN `.3`) |
 | .10 – .19 | Serveurs applicatifs |
 | .20 – .29 | Serveurs back-end (bases) |
 | .100 – .200 | Pool DHCP (postes clients) |
+
+**DMZ (10.0.0.0/24)** :
+
+| IP | Usage |
+|---|---|
+| `10.0.0.1` | Gateway = routeur Neutron |
+| `10.0.0.2 – .6` | fw-legacy (primary + 4 alias pour FIPs) |
+| `10.0.0.100 – .200` | Pool DHCP (inutilisé, présent par défaut) |
 
 ### 2.3 Security group
 
@@ -91,16 +141,18 @@ Cf. [security.tf](../terraform/security.tf).
 
 ### 2.4 Floating IPs (exposition externe)
 
-5 VMs sont accessibles depuis Internet via floating IP du pool `provider`
-([floating_ips.tf:13](../terraform/floating_ips.tf#L13)) :
+5 services sont accessibles depuis Internet via floating IP du pool
+`provider`. **Toutes les FIPs sont attachées au port DMZ de fw-legacy**
+([floating_ips.tf](../terraform/floating_ips.tf)) — la VM "cible" reçoit
+le trafic via le DNAT iptables de fw-legacy, jamais directement.
 
-| VM | Floating | Services exposés | Pourquoi exposé |
-|---|---|---|---|
-| `uc-fw-legacy` | oui | SSH 22 | Administration "legacy" |
-| `uc-vpn-legacy` | oui | PPTP 1723/tcp + GRE 47 | Accès distant utilisateurs |
-| `uc-srv-mail` | oui | SMTP 25, IMAP 143, POP3 110 | Messagerie institutionnelle |
-| `uc-srv-moodle` | oui | HTTP 80 | Plateforme pédagogique publique |
-| `uc-web-rh` | oui | HTTP 80 | **Vulnérabilité** : une appli RH interne ne devrait pas être sur Internet — nécessaire pour démontrer SO3 |
+| Service | FIP rattachée à | DNAT vers (campus) | Services exposés | Pourquoi exposé |
+|---|---|---|---|---|
+| Admin fw-legacy | `10.0.0.2` (primary DMZ) | local, pas de DNAT | SSH 22 | Administration "legacy" |
+| VPN | `10.0.0.3` (alias DMZ) | `uc-vpn-legacy` (`192.168.107.3`) | PPTP 1723/tcp + GRE 47 | Accès distant utilisateurs |
+| Mail | `10.0.0.4` (alias DMZ) | `uc-srv-mail` (`192.168.107.10`) | SMTP 25, IMAP 143, POP3 110 | Messagerie institutionnelle |
+| Moodle | `10.0.0.5` (alias DMZ) | `uc-srv-moodle` (`192.168.107.12`) | HTTP 80 | Plateforme pédagogique publique |
+| RH | `10.0.0.6` (alias DMZ) | `uc-web-rh` (`192.168.107.14`) | HTTP 80 | **Vulnérabilité** : une appli RH interne ne devrait pas être sur Internet — nécessaire pour démontrer SO3 |
 
 ## 3. Inventaire des VMs
 
@@ -108,7 +160,7 @@ Cf. [security.tf](../terraform/security.tf).
 
 | Code Terraform | Hostname | IP fixe | Flavor | Image | Rôle |
 |---|---|---|---|---|---|
-| `fw-legacy` | `uc-fw-legacy` | .2 | m1.tiny | Debian 10 | Pare-feu legacy |
+| `fw-legacy` | `uc-fw-legacy` | campus .2 + DMZ 10.0.0.2-6 | m1.tiny | Debian 10 | Pare-feu périmétrique (bi-homé campus/DMZ) |
 | `vpn-legacy` | `uc-vpn-legacy` | .3 | m1.tiny | Ubuntu 22.04 | Concentrateur PPTP |
 | `srv-mail` | `uc-srv-mail` | .10 | m1.tiny | Ubuntu 22.04 | Postfix + Dovecot |
 | `srv-ldap` | `uc-srv-ldap` | .11 | m1.tiny | Ubuntu 22.04 | OpenLDAP (slapd) |
@@ -200,22 +252,43 @@ plupart des scénarios opérationnels.
 
 ## 6. Détail des services par VM
 
-### 6.1 `uc-fw-legacy` (.2) — Pare-feu Debian 10 (gateway inline)
+### 6.1 `uc-fw-legacy` — Pare-feu Debian 10 (périmétrique inline, 2 NICs)
 
 [scripts/fw-legacy.sh](../terraform/scripts/fw-legacy.sh)
 
-- **Gateway DHCP du subnet** : reçoit tout le trafic sortant des VMs
+**Interfaces** :
+- Campus `eth0` → `192.168.107.2` (= gateway DHCP annoncée aux VMs)
+- DMZ `eth1` → `10.0.0.2` primaire + alias `10.0.0.3-6` (héberge les FIPs)
+
+**Routage / forwarding** :
 - `net.ipv4.ip_forward=1` (routage activé)
 - `net.ipv4.conf.all.send_redirects=0` (sinon Linux annoncerait aux VMs
-  "envoie directement à .1" et fw-legacy serait court-circuité)
-- Override de sa propre route par défaut : `default via 192.168.107.1`
-  (sinon fw-legacy s'enverrait à lui-même son propre trafic). Persisté
-  via un hook dhclient.
-- iptables : `INPUT/FORWARD/OUTPUT ACCEPT`, toutes les tables vidées
-- Règle résiduelle : `INPUT -p tcp --dport 8080 -j ACCEPT` (vestige d'un projet)
-- Floating IP : SSH 22 admin (clé `uc-keypair-admin`)
+  un raccourci ICMP redirect qui contournerait fw-legacy)
+- Override de la route par défaut sur `default via 10.0.0.1` (le DHCP
+  campus annonce `.2 = lui-même` comme gateway → boucle locale sans cet
+  override). Persisté via un hook dhclient.
+- Service systemd `uc-fw-aliases.service` qui ré-applique les alias DMZ
+  `10.0.0.3-6` après chaque boot.
+
+**iptables** :
+- Politique `INPUT/FORWARD/OUTPUT ACCEPT` (tables vidées, firewall obsolète)
+- Règle résiduelle `INPUT -p tcp --dport 8080 -j ACCEPT` (vestige d'une
+  ancienne conf, modélise une règle morte non documentée)
+- `nat PREROUTING` — DNAT par alias DMZ (cf. mapping §2.4)
+- `nat POSTROUTING` :
+  - `-o eth-DMZ -s 192.168.107.0/24 -j MASQUERADE` (egress hide-NAT)
+  - `-o eth-CAMPUS -j MASQUERADE` (ingress hide-NAT, la VM cible voit la
+    connexion arriver depuis fw-legacy)
+- `nf_conntrack_pptp` + `nf_nat_pptp` chargés pour le NAT GRE du VPN
 - `iptables-persistent` pour la persistance au reboot
-- **Pas de bootstrap SSH-password** : géré séparément (Debian 10)
+
+**Floating IP admin** : SSH 22 sur la FIP rattachée à `10.0.0.2`
+(clé `uc-keypair-admin`).
+
+**Provisioning** : envoyé en `user_data` raw (pas via multipart cloud-init)
+car cloud-init 18.3 / Debian 10 plante sur le multipart MIME mono-part
+(`ShellScriptPartHandler` n'enregistre pas le script, cf. [instances.tf](../terraform/instances.tf)).
+**Pas de bootstrap SSH-password commun** (géré séparément, Debian 10).
 
 ### 6.2 `uc-vpn-legacy` (.3) — VPN PPTP
 
@@ -408,7 +481,7 @@ techniquement démontrables :
 | 8 | Colonne `rib` (IBAN) dans la table `employes` + formulaire de modification sur web-rh | Permettre la démo SO5 (détournement de RIB de versement) | [scripts/db-rh.sh](../terraform/scripts/db-rh.sh), [scripts/web-rh.sh](../terraform/scripts/web-rh.sh) |
 | 9 | Floating IP attachée à `uc-web-rh` | Permettre le "port scan externe" du chemin retenu SO3 | [floating_ips.tf](../terraform/floating_ips.tf) |
 | 10 | Note dans `/home/ubuntu/NOTE-cle-admin.txt` sur poste-dsi rendant le dépôt de clé optionnel | SO2 ne dépend plus d'une opération manuelle post-deploy | [scripts/poste-dsi.sh](../terraform/scripts/poste-dsi.sh) |
-| 11 | Gateway DHCP du subnet = fw-legacy (.2) au lieu du routeur Neutron (.1), port explicite `router_internal` pour le routeur, override de la route par défaut dans fw-legacy.sh, wait-for-fw dans `_bootstrap.sh` | Rendre fw-legacy **inline pour l'egress** : toutes les VMs envoient leur trafic sortant Internet via fw-legacy, qui le forwarde avec sa politique ACCEPT. Renforce le récit "firewall périmétrique obsolète". | [network.tf](../terraform/network.tf), [scripts/fw-legacy.sh](../terraform/scripts/fw-legacy.sh), [scripts/_bootstrap.sh](../terraform/scripts/_bootstrap.sh) |
+| 11 | Topologie DMZ + campus : nouveau subnet `uc-net-dmz` (10.0.0.0/24) entre fw-legacy et le routeur Neutron. fw-legacy bi-homé (campus + DMZ). Subnet campus sans `router_interface` Neutron. Les 5 FIPs sont toutes sur le port DMZ de fw-legacy à des `fixed_ip_address` distinctes (.2-.6). fw-legacy fait DNAT iptables vers les VMs campus et MASQUERADE bidirectionnel. | Rendre fw-legacy **vraiment périmétrique** : ingress (Floating IPs) et egress (VMs → Internet) transitent obligatoirement par fw-legacy. Avant : seul l'egress passait (les FIPs DNAT-aient directement vers les VMs côté Neutron). Renforce le récit "pare-feu périmétrique" du SI modélisé. | [network.tf](../terraform/network.tf), [floating_ips.tf](../terraform/floating_ips.tf), [instances.tf](../terraform/instances.tf), [scripts/fw-legacy.sh](../terraform/scripts/fw-legacy.sh) |
 
 Aucune mesure de réduction du risque n'a été introduite — toutes ces
 modifications **conservent ou aggravent** les vulnérabilités. La maquette
