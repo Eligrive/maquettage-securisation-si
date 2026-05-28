@@ -82,10 +82,10 @@ terraform_apply:
     entrypoint: [""]
   script:
     - *tf_init_backend
-    # -parallelism=2 : créer les VMs 2 par 2 au lieu de 10 par 10 (défaut)
-    # pour éviter "No valid host was found" lors d'un burst de scheduling
-    # sur l'OpenStack mutualisé de l'école (capacité compute partagée).
-    - terraform apply -auto-approve -parallelism=2
+    # -parallelism=6 : compromis entre la valeur défaut (10, qui burst trop
+    # le scheduler Nova sur la zone cisco) et 2 (trop lent, ~6 min).
+    # Si "No valid host was found" reapparait, redescendre à 2 ou 3.
+    - terraform apply -auto-approve -parallelism=6
   rules:
     # N'apparaît QUE sur develop et main, et nécessite un clic humain
     - if: '$CI_COMMIT_BRANCH == "develop" || $CI_COMMIT_BRANCH == "main"'
