@@ -79,13 +79,12 @@ resource "openstack_compute_instance_v2" "fixed" {
   key_pair          = openstack_compute_keypair_v2.admin.name
   availability_zone = "cisco"
 
-  # Provisioning : script de service + assets (cf. cloudinit.tf).
-  # Cas particulier fw-legacy : cloud-init 18.3 (Debian 10) échoue sur le
-  # multipart MIME mono-part généré par cloudinit_config (le handler
-  # ShellScriptPartHandler n'enregistre pas le script -> jamais exécuté ->
-  # default route reste en boucle sur .2 et fw-legacy ne sort plus).
-  # On envoie le script brut : cloud-init détecte le shebang et l'exécute.
-  user_data = each.key == "fw-legacy" ? file("${path.module}/scripts/fw-legacy.sh") : data.cloudinit_config.vm[each.key].rendered
+  # Provisioning : shellscript brut (assets + bootstrap + setup) construit
+  # dans cloudinit.tf. On bypass le multipart cloudinit_config sur TOUTES
+  # les VMs (pas que fw-legacy) car le ShellScriptPartHandler de cloud-init
+  # plante sur ce multipart aussi bien sous Debian 10 que Ubuntu 24.04
+  # (cf. commentaire en tête de cloudinit.tf).
+  user_data = local.user_data[each.key]
 
   # Interface campus (eth0 sur toutes les VMs).
   network {
@@ -112,8 +111,8 @@ resource "openstack_compute_instance_v2" "dhcp" {
   key_pair          = openstack_compute_keypair_v2.admin.name
   availability_zone = "cisco"
 
-  # Provisioning : script de service + assets (cf. cloudinit.tf)
-  user_data = data.cloudinit_config.vm[each.key].rendered
+  # Provisioning : shellscript brut (assets + bootstrap + setup), cf. cloudinit.tf
+  user_data = local.user_data[each.key]
 
   # Security group appliqué directement (pas de port explicite ici)
   security_groups = [openstack_networking_secgroup_v2.allow_all.name]
