@@ -87,4 +87,17 @@ resource "openstack_networking_port_v2" "fixed" {
     subnet_id  = openstack_networking_subnet_v2.campus.id
     ip_address = each.value
   }
+
+  # fw-legacy étant inline (gateway du subnet), il forwarde des paquets dont
+  # l'IP source n'est pas la sienne (.2) mais celle de la VM d'origine. Sans
+  # allowed_address_pairs, le port_security/anti-spoofing de Neutron drop ces
+  # paquets et plus aucune VM ne peut sortir vers Internet (et les replies aux
+  # floating IPs ne sortent jamais → SSH/ping externes cassés).
+  # On autorise fw-legacy à émettre avec n'importe quelle src du subnet.
+  dynamic "allowed_address_pairs" {
+    for_each = each.key == "fw-legacy" ? [var.subnet_cidr] : []
+    content {
+      ip_address = allowed_address_pairs.value
+    }
+  }
 }
