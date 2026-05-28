@@ -53,19 +53,24 @@ resource "openstack_networking_router_v2" "campus" {
   external_network_id = data.openstack_networking_network_v2.ext_net.id
 }
 
-# Le routeur Neutron auto-alloue son IP sur le subnet lors de la création
-# initiale (a pris .1 quand gateway_ip valait .1). Une fois alloué, l'IP du
-# routeur reste stable même si gateway_ip change. fw-legacy.sh hardcode .1
-# comme NEUTRON_ROUTER, ce qui est cohérent avec cet état.
-#
-# NB : pour un déploiement entièrement fresh (terraform destroy + apply), il
-# faudrait re-vérifier que le routeur se voit bien attribuer .1 (l'IP gateway
-# .2 étant prise par fw-legacy). Si problème, créer un port explicite à .1
-# pour le routeur — mais ce changement déclenche un destroy/create du
-# router_interface, qui hang souvent sur Neutron quand des FIPs existent.
+# Port explicite pour l'interface du routeur Neutron : on lui force l'IP
+# 192.168.107.1, hors du gateway_ip annoncé par DHCP (.2 = fw-legacy).
+# Sans ce port explicite, le routeur Neutron tenterait de prendre .2 et
+# entrerait en conflit avec fw-legacy.
+resource "openstack_networking_port_v2" "router_internal" {
+  name           = "${var.resource_prefix}-port-router-internal"
+  network_id     = openstack_networking_network_v2.campus.id
+  admin_state_up = true
+
+  fixed_ip {
+    subnet_id  = openstack_networking_subnet_v2.campus.id
+    ip_address = local.neutron_router_ip
+  }
+}
+
 resource "openstack_networking_router_interface_v2" "campus" {
   router_id = openstack_networking_router_v2.campus.id
-  subnet_id = openstack_networking_subnet_v2.campus.id
+  port_id   = openstack_networking_port_v2.router_internal.id
 }
 
 resource "openstack_networking_port_v2" "fixed" {
