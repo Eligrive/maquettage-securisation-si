@@ -38,12 +38,31 @@ réseau décrite par l'énoncé.
 
 | Élément | Valeur | Code Terraform |
 |---|---|---|
-| Network Neutron | `uc-net-campus` | [network.tf:20-23](../terraform/network.tf#L20-L23) |
-| Subnet CIDR | `192.168.107.0/24` | [network.tf:25-40](../terraform/network.tf#L25-L40) |
-| Gateway | `192.168.107.1` | calculé via `cidrhost(cidr, 1)` |
+| Network Neutron | `uc-net-campus` | [network.tf](../terraform/network.tf) |
+| Subnet CIDR | `192.168.107.0/24` | [network.tf](../terraform/network.tf) |
+| **Gateway DHCP (annoncée aux VMs)** | **`192.168.107.2` (= fw-legacy)** | `local.subnet_gateway` |
+| IP du routeur Neutron (interne) | `192.168.107.1` | port explicite `router_internal` |
 | Pool DHCP | `192.168.107.100–200` | calculé via `cidrhost` |
-| DNS forwarders | `8.8.8.8`, `1.1.1.1` | [network.tf:39](../terraform/network.tf#L39) |
-| Routeur | `uc-router-campus` (attaché au `provider`) | [network.tf:42-51](../terraform/network.tf#L42-L51) |
+| DNS forwarders | `8.8.8.8`, `1.1.1.1` | [network.tf](../terraform/network.tf) |
+| Routeur Neutron | `uc-router-campus` (attaché au `provider`) | [network.tf](../terraform/network.tf) |
+
+**fw-legacy est inline pour l'egress** : la passerelle annoncée par DHCP
+sur le subnet est `.2` (fw-legacy), pas `.1` (routeur Neutron). Toutes les
+VMs envoient donc leur trafic sortant Internet vers fw-legacy, qui le
+forwarde au routeur Neutron à `.1`. fw-legacy a `ip_forward=1` et iptables
+en politique `ACCEPT` (firewall obsolète qui ne filtre rien — cf. énoncé
+"firewall obsolète, règles incohérentes"). Le routeur Neutron a son
+interface forcée à `.1` via un port explicite `uc-port-router-internal`
+pour éviter le conflit avec fw-legacy à `.2`.
+
+**Ce que fw-legacy capte** (et laisse passer) :
+- ✅ Tout le trafic sortant VM → Internet (DNS, HTTP, apt-get, exfiltration…)
+- ❌ Trafic entrant des floating IPs (Neutron DNAT direct vers la VM)
+- ❌ Trafic VM ↔ VM dans le même subnet (passe en L2 direct, contourne fw-legacy)
+
+Cette dernière limite est **volontaire** : elle modélise l'absence de
+cloisonnement réseau interne décrite par l'énoncé. fw-legacy est un
+**pare-feu périmétrique** obsolète, pas un firewall de segmentation interne.
 
 ### 2.2 Plan d'adressage IP fixe
 
@@ -181,11 +200,17 @@ plupart des scénarios opérationnels.
 
 ## 6. Détail des services par VM
 
-### 6.1 `uc-fw-legacy` (.2) — Pare-feu Debian 10
+### 6.1 `uc-fw-legacy` (.2) — Pare-feu Debian 10 (gateway inline)
 
 [scripts/fw-legacy.sh](../terraform/scripts/fw-legacy.sh)
 
+- **Gateway DHCP du subnet** : reçoit tout le trafic sortant des VMs
 - `net.ipv4.ip_forward=1` (routage activé)
+- `net.ipv4.conf.all.send_redirects=0` (sinon Linux annoncerait aux VMs
+  "envoie directement à .1" et fw-legacy serait court-circuité)
+- Override de sa propre route par défaut : `default via 192.168.107.1`
+  (sinon fw-legacy s'enverrait à lui-même son propre trafic). Persisté
+  via un hook dhclient.
 - iptables : `INPUT/FORWARD/OUTPUT ACCEPT`, toutes les tables vidées
 - Règle résiduelle : `INPUT -p tcp --dport 8080 -j ACCEPT` (vestige d'un projet)
 - Floating IP : SSH 22 admin (clé `uc-keypair-admin`)
@@ -383,6 +408,7 @@ techniquement démontrables :
 | 8 | Colonne `rib` (IBAN) dans la table `employes` + formulaire de modification sur web-rh | Permettre la démo SO5 (détournement de RIB de versement) | [scripts/db-rh.sh](../terraform/scripts/db-rh.sh), [scripts/web-rh.sh](../terraform/scripts/web-rh.sh) |
 | 9 | Floating IP attachée à `uc-web-rh` | Permettre le "port scan externe" du chemin retenu SO3 | [floating_ips.tf](../terraform/floating_ips.tf) |
 | 10 | Note dans `/home/ubuntu/NOTE-cle-admin.txt` sur poste-dsi rendant le dépôt de clé optionnel | SO2 ne dépend plus d'une opération manuelle post-deploy | [scripts/poste-dsi.sh](../terraform/scripts/poste-dsi.sh) |
+| 11 | Gateway DHCP du subnet = fw-legacy (.2) au lieu du routeur Neutron (.1), port explicite `router_internal` pour le routeur, override de la route par défaut dans fw-legacy.sh, wait-for-fw dans `_bootstrap.sh` | Rendre fw-legacy **inline pour l'egress** : toutes les VMs envoient leur trafic sortant Internet via fw-legacy, qui le forwarde avec sa politique ACCEPT. Renforce le récit "firewall périmétrique obsolète". | [network.tf](../terraform/network.tf), [scripts/fw-legacy.sh](../terraform/scripts/fw-legacy.sh), [scripts/_bootstrap.sh](../terraform/scripts/_bootstrap.sh) |
 
 Aucune mesure de réduction du risque n'a été introduite — toutes ces
 modifications **conservent ou aggravent** les vulnérabilités. La maquette
