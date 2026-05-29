@@ -114,8 +114,9 @@ resource "openstack_compute_instance_v2" "dhcp" {
   # Provisioning : shellscript brut (assets + bootstrap + setup), cf. cloudinit.tf
   user_data = local.user_data[each.key]
 
-  # Security group appliqué directement (pas de port explicite ici)
-  security_groups = [openstack_networking_secgroup_v2.allow_all.name]
+  # Pas de security_groups : le réseau campus a port_security_enabled=false
+  # (cf. network.tf) donc les ports DHCP créés auto sur ces VMs n'ont ni
+  # port_security ni SG. C'est le filtrage iptables sur fw-legacy qui gère.
 
   # Attache au réseau campus, IP attribuée par DHCP
   network {

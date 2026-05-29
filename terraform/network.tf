@@ -41,9 +41,18 @@ locals {
 
 # --- Réseau campus (subnet interne) ---
 
+# port_security_enabled = false au niveau réseau : c'est le défaut hérité par
+# les ports DHCP créés automatiquement pour les postes (uc-poste-*). OVS
+# firewall avec port_security=true drop les paquets forwardés via fw-legacy
+# au niveau du bridge OVS, AVANT que netfilter ne les voie (typique d'une
+# topologie "VM en routeur" sur Neutron). En le désactivant côté Neutron,
+# le seul firewall qui filtre est fw-legacy lui-même (iptables) — conforme
+# au narratif "maquette vulnérable, pas de filtrage périmétrique cloud".
+
 resource "openstack_networking_network_v2" "campus" {
-  name           = "${var.resource_prefix}-net-campus"
-  admin_state_up = true
+  name                  = "${var.resource_prefix}-net-campus"
+  admin_state_up        = true
+  port_security_enabled = false
 }
 
 resource "openstack_networking_subnet_v2" "campus" {
@@ -69,8 +78,9 @@ resource "openstack_networking_subnet_v2" "campus" {
 # --- Réseau DMZ (entre fw-legacy et routeur Neutron) ---
 
 resource "openstack_networking_network_v2" "dmz" {
-  name           = "${var.resource_prefix}-net-dmz"
-  admin_state_up = true
+  name                  = "${var.resource_prefix}-net-dmz"
+  admin_state_up        = true
+  port_security_enabled = false
 }
 
 resource "openstack_networking_subnet_v2" "dmz" {
@@ -111,7 +121,11 @@ resource "openstack_networking_port_v2" "fw_dmz" {
   network_id     = openstack_networking_network_v2.dmz.id
   admin_state_up = true
 
-  security_group_ids = [openstack_networking_secgroup_v2.allow_all.id]
+  # Port_security off : cf. commentaire sur openstack_networking_network_v2.campus.
+  # fw-legacy doit pouvoir recevoir/émettre des paquets avec n'importe quel
+  # src/dst IP pour faire son boulot de DNAT + routage.
+  port_security_enabled = false
+  security_group_ids    = []
 
   # 5 IPs fixes sur le même port. La primaire (.2) est servie par DHCP ;
   # les autres sont attribuées par cloud-init dans fw-legacy.sh (ip addr
@@ -122,13 +136,6 @@ resource "openstack_networking_port_v2" "fw_dmz" {
       subnet_id  = openstack_networking_subnet_v2.dmz.id
       ip_address = fixed_ip.value
     }
-  }
-
-  # Safety net : on autorise la plage campus comme src côté DMZ, au cas où
-  # le MASQUERADE iptables ne s'appliquerait pas à tout (typiquement pendant
-  # le boot avant que les règles soient chargées).
-  allowed_address_pairs {
-    ip_address = var.subnet_cidr
   }
 }
 
@@ -141,21 +148,15 @@ resource "openstack_networking_port_v2" "fixed" {
   network_id     = openstack_networking_network_v2.campus.id
   admin_state_up = true
 
-  # Security group appliqué à l'interface (cf. security.tf)
-  security_group_ids = [openstack_networking_secgroup_v2.allow_all.id]
+  # Port_security off : cf. commentaire sur openstack_networking_network_v2.campus.
+  # Sans ça, OVS firewall drop les paquets forwardés via fw-legacy au niveau
+  # bridge OVS (avant netfilter), ce qui rend impossible le rôle de fw-legacy
+  # comme routeur inline pour egress + ingress DNAT.
+  port_security_enabled = false
+  security_group_ids    = []
 
   fixed_ip {
     subnet_id  = openstack_networking_subnet_v2.campus.id
     ip_address = each.value
-  }
-
-  # Pour fw-legacy uniquement : safety net si le MASQUERADE ne couvre pas
-  # tout. Les VMs internes n'en ont pas besoin (elles émettent toujours
-  # avec leur propre IP).
-  dynamic "allowed_address_pairs" {
-    for_each = each.key == "fw-legacy" ? [var.subnet_cidr] : []
-    content {
-      ip_address = allowed_address_pairs.value
-    }
   }
 }
