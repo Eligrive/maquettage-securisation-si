@@ -26,6 +26,19 @@ sed -i 's#^SLAPD_SERVICES=.*#SLAPD_SERVICES="ldap:/// ldapi:///"#' /etc/default/
 systemctl restart slapd
 sleep 3
 
+# --- Force le rootDN password (dpkg-reconfigure ignore le preseed sur les
+#     installs récentes, du coup l'admin password reste celui aléatoire généré
+#     au premier install -> ldapadd plus bas plante avec "Invalid credentials").
+#     On override via ldapmodify EXTERNAL sur slapd-config. ---
+ADMIN_HASH=$(slappasswd -s unicampus2024)
+ldapmodify -Y EXTERNAL -H ldapi:/// <<EOF
+dn: olcDatabase={1}mdb,cn=config
+changetype: modify
+replace: olcRootPW
+olcRootPW: ${ADMIN_HASH}
+EOF
+sleep 1
+
 # --- Peuplement : OUs + comptes (cf. §6.1) ---
 cat > /tmp/uc-base.ldif <<'EOF'
 dn: ou=people,dc=unicampus,dc=local

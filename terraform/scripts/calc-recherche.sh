@@ -7,7 +7,7 @@ exec > /var/log/uc-provision.log 2>&1
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
-apt-get install -y nfs-kernel-server samba postgresql python3-pip
+apt-get install -y nfs-kernel-server samba postgresql python3-pip python3-venv
 
 # --- Partage de données recherche ---
 mkdir -p /srv/recherche
@@ -64,7 +64,15 @@ useradd -m -s /bin/bash pa1 2>/dev/null || true; echo 'pa1:partenaire2024' | chp
 (echo 'unicampus2024';  echo 'unicampus2024')  | smbpasswd -a -s jdupont
 
 # --- Jupyter sans token ni mot de passe, écoute 0.0.0.0:8888 (vuln) ---
-pip3 install --quiet notebook
+# Install dans un venv isolé. Pourquoi pas `pip3 install --break-system-packages
+# notebook` directement ? Sur Ubuntu 24.04 le paquet apt `python3-traitlets`
+# a un RECORD manquant et pip refuse de le mettre à jour ; la version notebook
+# qu'on installe demande une traitlets plus récente -> import error
+# "warn() missing required keyword-only argument 'stacklevel'" -> service
+# crash en boucle. Le venv isole proprement les deps.
+python3 -m venv /opt/jupyter-venv
+/opt/jupyter-venv/bin/pip install --quiet --upgrade pip
+/opt/jupyter-venv/bin/pip install --quiet notebook
 useradd -m -s /bin/bash recherche 2>/dev/null || true
 chown -R recherche:sleblanc /srv/recherche 2>/dev/null || chown -R recherche:recherche /srv/recherche
 cat > /etc/systemd/system/jupyter.service <<'EOF'
@@ -74,7 +82,8 @@ After=network.target
 
 [Service]
 User=recherche
-ExecStart=/usr/local/bin/jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser --NotebookApp.token='' --NotebookApp.password='' --notebook-dir=/srv/recherche
+WorkingDirectory=/srv/recherche
+ExecStart=/opt/jupyter-venv/bin/jupyter-notebook --ip=0.0.0.0 --port=8888 --no-browser --NotebookApp.token='' --NotebookApp.password='' --notebook-dir=/srv/recherche
 Restart=always
 
 [Install]
