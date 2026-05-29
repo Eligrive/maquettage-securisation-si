@@ -31,6 +31,19 @@ locals {
 
   bootstrap_content = file("${path.module}/scripts/_bootstrap.sh")
 
+  # Bloc d'exports FIP_<NAME>=<addr> injectées par Terraform dans le user_data
+  # de chaque VM. Permet aux scripts setup-<vm>.sh de référencer la FIP
+  # d'autres services à l'install (ex: srv-moodle a besoin de FIP_SRV_MOODLE
+  # pour wwwroot Moodle, sinon les clients externes sont redirigés vers l'IP
+  # interne inaccessible).
+  fip_exports = join("\n", concat(
+    ["# FIPs injectées par Terraform (cloudinit.tf)"],
+    [
+      for k, v in openstack_networking_floatingip_v2.public :
+      "export FIP_${replace(upper(k), "-", "_")}=\"${v.address}\""
+    ]
+  ))
+
   # Bloc shell qui dépose les assets dans /opt/loot. filebase64 retourne
   # une seule ligne de base64 ; on l'enveloppe dans un heredoc 'EOF_LOOT'
   # (pas d'interpolation, content base64 ne contient que [A-Za-z0-9+/=]).
@@ -51,8 +64,9 @@ locals {
     for vm_key in keys(local.all_vms) :
     vm_key => vm_key == "fw-legacy" ? file("${path.module}/scripts/fw-legacy.sh") : join("\n\n", [
       "#!/bin/bash",
-      "# Combined user_data (assets + bootstrap + setup)",
+      "# Combined user_data (FIP exports + assets + bootstrap + setup)",
       "# Bypass du multipart cloudinit_config (cf. cloudinit.tf)",
+      local.fip_exports,
       local.asset_blocks[vm_key],
       local.bootstrap_content,
       file("${path.module}/scripts/${vm_key}.sh"),

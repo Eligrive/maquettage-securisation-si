@@ -10,7 +10,12 @@ DBNAME=moodle
 DBUSER=moodle
 DBPASS=unicampus2024
 ADMINPASS=Admin2024              # volontairement faible, aucune politique
-WWWROOT="http://192.168.107.12"
+# WWWROOT doit pointer sur l'URL d'accès des clients. Les utilisateurs externes
+# arrivent via la FIP ; Moodle redirige toutes les requêtes vers WWWROOT donc
+# si on hardcode l'IP interne (.12), les clients externes sont redirigés vers
+# une IP inaccessible. FIP_SRV_MOODLE est injectée par Terraform (cf.
+# cloudinit.tf), fallback sur l'IP interne si absente (debug local).
+WWWROOT="http://${FIP_SRV_MOODLE:-192.168.107.12}"
 MOODLE_BRANCH=MOODLE_404_STABLE
 
 apt-get update
@@ -29,9 +34,12 @@ GRANT ALL PRIVILEGES ON ${DBNAME}.* TO '${DBUSER}'@'localhost';
 FLUSH PRIVILEGES;
 SQL
 
-# PHP : MariaDB attend cette valeur pour Moodle
+# PHP : Moodle exige max_input_vars >= 5000. Le sed doit aussi matcher la
+# ligne par défaut commentée (";max_input_vars = 1000"), sinon l'install
+# Moodle plante au [System] check, laisse la base vide et l'utilisateur
+# arrive sur la page wizard d'installation.
 for INI in /etc/php/*/apache2/php.ini /etc/php/*/cli/php.ini; do
-  [ -f "$INI" ] && sed -i 's/^max_input_vars.*/max_input_vars = 5000/' "$INI"
+  [ -f "$INI" ] && sed -i -E 's/^[; ]*max_input_vars[[:space:]]*=.*/max_input_vars = 5000/' "$INI"
 done
 
 # --- Récupération de Moodle ---
