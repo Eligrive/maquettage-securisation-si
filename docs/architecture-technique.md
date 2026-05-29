@@ -6,6 +6,9 @@ l'analyse de risque (cf. [mapping-analyse-risque.md](mapping-analyse-risque.md))
 et de référence pour la démonstration des attaques
 (cf. [scenarios-attaque.md](scenarios-attaque.md)).
 
+Pour la vérification opérationnelle pas à pas des services, voir
+[guide-verification-maquette.md](guide-verification-maquette.md).
+
 > ⚠️ Cette maquette est **volontairement vulnérable**. Toutes les "anomalies"
 > décrites ici (mots de passe faibles, comptes partagés, services en clair,
 > partages ouverts) sont **intentionnelles** et reproduisent fidèlement les
@@ -153,6 +156,9 @@ le trafic via le DNAT iptables de fw-legacy, jamais directement.
 | Mail | `10.0.0.4` (alias DMZ) | `uc-srv-mail` (`192.168.107.10`) | SMTP 25, IMAP 143, POP3 110 | Messagerie institutionnelle |
 | Moodle | `10.0.0.5` (alias DMZ) | `uc-srv-moodle` (`192.168.107.12`) | HTTP 80 | Plateforme pédagogique publique |
 | RH | `10.0.0.6` (alias DMZ) | `uc-web-rh` (`192.168.107.14`) | HTTP 80 | **Vulnérabilité** : une appli RH interne ne devrait pas être sur Internet — nécessaire pour démontrer SO3 |
+
+Le détail du mapping FIP publique et des commandes d'accès SSH est maintenu
+dans [guide-verification-maquette.md](guide-verification-maquette.md).
 
 ## 3. Inventaire des VMs
 

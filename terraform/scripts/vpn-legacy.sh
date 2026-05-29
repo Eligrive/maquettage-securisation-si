@@ -1,10 +1,13 @@
 #!/bin/bash
-# Provisioning uc-vpn-legacy (Ubuntu 22.04) — cf. architecture §5.3
+# Provisioning uc-vpn-legacy (Ubuntu 24.04) — cf. architecture §5.3
 # VPN PPTP déprécié : compte partagé, MPPE-128 (RC4), pas de MFA.
 set -x
 exec > /var/log/uc-provision.log 2>&1
 export DEBIAN_FRONTEND=noninteractive
 
+apt-get update
+apt-get install -y software-properties-common
+add-apt-repository -y ppa:lucaskanashiro/ubuntu-server-noble-rebuilds
 apt-get update
 apt-get install -y pptpd
 
