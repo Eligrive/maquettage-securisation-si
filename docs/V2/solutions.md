@@ -21,7 +21,7 @@ Marquer chaque compte comme "mot de passe non migré" (attribut LDAP pwdMustChan
 Au premier login de l'utilisateur sur Keycloak, forcer la réinitialisation du mot de passe via un flux OIDC dédié
 Une fois le nouveau mot de passe défini (bcrypt/Argon2id), le compte est pleinement migré
 
-Pour garantir qu'aucun compte n'est perdu, on produit avant migration une liste exhaustive des UIDs actifs par service (Moodle DB, LDAP, MariaDB RH, comptes Unix), on déduplique, et on vérifie après import que le nombre d'entrées dans Kerberos correspond.
+Pour garantir qu'aucun compte n'est perdu, on produit avant migration une liste exhaustive des UIDs actifs par service (Moodle DB, LDAP, MariaDB RH, comptes Unix), on déduplique, et on vérifie après import que le nombre d'entrées dans Keycloak correspond.
 
 ### 2. Migration des données applicatives
 Chaque service a ses propres contraintes. La méthode générale est : dump → transformation → import → reconciliation.
@@ -166,7 +166,7 @@ Chaque service gère sa propre base d'utilisateurs : MariaDB sur Moodle, tables 
 **Règles ANSSI enfreintes** : Règle 8 (Comptes nominatifs), Règle 9 (Droits strictement nécessaires)
 
 **Solution v2**  
-Déployer un SSO : Kerberos 
+Déployer un SSO : Keycloak 
 
 ---
 
@@ -180,7 +180,7 @@ Déployer un SSO : Kerberos
 **Règle ANSSI enfreinte** : Règle 8 (Comptes nominatifs)
 
 **Solution v2**  
-Faire du LDAP la source d'autorité unique (source of truth) pour les identités. Tous les services s'authentifient via LDAP/Kerberos. Mettre en place un modèle **RBAC** avec les rôles `etudiant`, `enseignant`, `chercheur`, `ens-chercheur`, `admin`, `dsi`. 
+Faire du LDAP la source d'autorité unique (source of truth) pour les identités. Tous les services s'authentifient via LDAP/keycloak. Mettre en place un modèle **RBAC** avec les rôles `etudiant`, `enseignant`, `chercheur`, `ens-chercheur`, `admin`, `dsi`. 
 
 ~~Ajouter une dimension **ABAC** pour les accès R&D (accès conditionné par le réseau source et la plage horaire)~~
 
@@ -266,7 +266,7 @@ Déployer des certificats TLS (PKI interne ou Let's Encrypt) sur l'ensemble des 
 **Règles ANSSI enfreintes** : Règle 9 (Droits strictement nécessaires), Règle 31 (Protocoles sécurisés)
 
 **Solution v2**  
-Migrer vers **NFSv4 avec Kerberos** (sec=krb5p). Restreindre les exports aux seules machines autorisées par IP (remplacer `*` par la liste explicite des clients). Supprimer `no_root_squash`. En complément de la segmentation réseau (catégorie 1), le partage NFS ne sera accessible que depuis `uc-net-recherche`.
+Migrer vers **NFSv4 avec Keycloak** (sec=krb5p). Restreindre les exports aux seules machines autorisées par IP (remplacer `*` par la liste explicite des clients). Supprimer `no_root_squash`. En complément de la segmentation réseau (catégorie 1), le partage NFS ne sera accessible que depuis `uc-net-recherche`.
 
 modifier les fichiers de conf, principe du moindre privilège 
 
