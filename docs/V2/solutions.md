@@ -200,7 +200,7 @@ Le poste DSI se connecte en SSH direct (`PasswordAuthentication yes`) sur tous l
 **Règles ANSSI enfreintes** : Règle 35 (Journalisation), Règle 40 (Gestion d'incident)
 
 **Solution v2**  
-Déployer un **bastion SSH** (Teleport ou Apache Guacamole) dans `uc-net-admin`. Toutes les connexions SSH admin passent obligatoirement par le bastion. Le bastion enregistre les sessions (audit trail), intègre le MFA, et centralise la gestion des autorisations. Les connexions SSH directes depuis les postes clients vers les serveurs sont bloquées par les Security Groups.
+Déployer un **bastion SSH** (Teleport ou Apache Guacamole) dans `uc-net-admin`. Toutes les connexions SSH admin passent obligatoirement par le bastion. Le bastion enregistre les sessions (audit trail), intègre le MFA, et centralise la gestion des autorisations. Les connexions SSH directes depuis les postes clients vers les serveurs sont bloquées  .
 
 En gros c'est des logs sur la connexion ssh 
 
