@@ -5,6 +5,73 @@
 
 ---
 
+---
+## Problématique de la migration 
+On fait le choix arbitraire de simuler le passage de la V1 à une V2 comme une migration réelle que l'on pourrait retrouver dans des scénarios réalistes. 
+
+On ajout ainsi la problématique de la conservation de la donnée et de son intégrité
+Trois garanties fondamentales : snapshot avant, validation après, rollback possible
+
+### 1.Migration des données utilisateurs
+Stratégie : migration progressive avec double authentification
+La seule approche viable est la migration à la première connexion :
+
+Exporter les comptes sans les hashs (uid, mail, nom, rôle, service d'origine) vers LDAP/Keycloak
+Marquer chaque compte comme "mot de passe non migré" (attribut LDAP pwdMustChange: TRUE ou flag Keycloak requiredActions: UPDATE_PASSWORD)
+Au premier login de l'utilisateur sur Keycloak, forcer la réinitialisation du mot de passe via un flux OIDC dédié
+Une fois le nouveau mot de passe défini (bcrypt/Argon2id), le compte est pleinement migré
+
+Pour garantir qu'aucun compte n'est perdu, on produit avant migration une liste exhaustive des UIDs actifs par service (Moodle DB, LDAP, MariaDB RH, comptes Unix), on déduplique, et on vérifie après import que le nombre d'entrées dans Kerberos correspond.
+
+### 2. Migration des données applicatives
+Chaque service a ses propres contraintes. La méthode générale est : dump → transformation → import → reconciliation.
+Étape 1 — Snapshot cohérent avant migration
+Il faut un snapshot pris à un instant T avec les services en lecture seule (ou arrêtés) pour éviter les écritures concurrentes pendant le dump
+
+```bash
+# Mettre Moodle en mode maintenance
+php /var/www/html/moodle/admin/cli/maintenance.php --enable
+
+# Dump cohérent MariaDB (--single-transaction pour InnoDB)
+mysqldump --single-transaction --routines --triggers moodle > moodle_before_migration.sql
+mysqldump --single-transaction rh > rh_before_migration.sql
+
+# Snapshot PostgreSQL (recherche)
+pg_dump -U recherche lrid_results > recherche_before_migration.sql
+
+# Hash de contrôle des dumps
+sha256sum *.sql > checksums_before.sha256 
+```
+
+Étape 2 — Transformation si nécessaire
+Si la v2 change de schéma, on écrit un script de transformation idempotent et on le teste d'abord sur une copie des données, jamais directement sur la source.
+
+Étape 3 — Import et vérification par reconciliation
+Après import sur la nouvelle infrastructure, on compare ligne à ligne les données critiques :
+```bash 
+# Comparer le nombre de lignes par table
+mysql -e "SELECT table_name, table_rows FROM information_schema.tables WHERE table_schema='rh';"
+
+# Pour les données financières (RIB, salaires) : vérification de la somme de contrôle métier
+mysql -e "SELECT SUM(salaire), COUNT(*) FROM employes;" # doit être identique avant/après
+
+# Pour Moodle : vérifier que les notes ne sont pas altérées
+mysql -e "SELECT COUNT(*), AVG(finalgrade) FROM mdl_grade_grades WHERE finalgrade IS NOT NULL;"
+```
+
+L'idée est de produire des empreintes métier (sommes, moyennes, comptes par catégorie) avant et après, pas seulement des checksums de fichiers — un fichier SQL peut être byte-for-byte différent mais contenir les mêmes données.
+
+Étape 4 — Validation fonctionnelle avant bascule
+Avant de rediriger le trafic réel vers la v2, on effectue un test de smoke testing sur un jeu de comptes pilotes :
+
+Un étudiant peut se connecter à Moodle et voit ses notes
+Un enseignant peut accéder à ses cours
+Un admin RH peut consulter les données sans erreur
+Le bastion SSH fonctionne pour la DSI
+
+## 3. Garantir le rollback
+---
+
 ## Catégorie 1 — Architecture réseau et segmentation
 
 > Ces failles portent sur la topologie réseau. Leur remédiation passe par des modifications de l'infrastructure (Terraform/OpenStack) et non par des reconfigurations applicatives.
