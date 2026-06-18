@@ -1,0 +1,31 @@
+# State Terraform — ne JAMAIS commiter (contient des secrets)
+*.tfstate
+*.tfstate.backup
+*.tfstate.*.backup
+
+# Cache local du init
+.terraform/
+
+# Plans sauvegardés
+*.tfplan
+
+# Variables avec valeurs secrètes
+*.auto.tfvars
+secrets.tfvars
+terraform.tfvars
+
+# Credentials OpenStack (clouds.yaml, openrc.sh téléchargés depuis Horizon)
+# → ne JAMAIS commiter, même "vidés" : à garder dans ~/.config/openstack/
+clouds.yaml
+*openrc.sh
+app-cred-*
+
+# Configuration locale Claude Code
+.claude/
+
+# Artefacts Python / scripts analyse-risque
+__pycache__/
+analyse-risque/.build_a4_graphs/
+# Fichiers de verrouillage Excel
+~$*.xlsx
+~$*.xlsm

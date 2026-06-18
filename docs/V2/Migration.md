@@ -1,0 +1,2 @@
+    Ce document va rassembler les choses importantes concernant la migration
+Comme on part du paradygme que l'on fait une migration d'une V1 déjà existante on ex^plique dans ce document certaines problématique et scénario rencontrés pour les documenter et expliquer nos choix 

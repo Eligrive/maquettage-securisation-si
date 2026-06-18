@@ -1,0 +1,92 @@
+stages:
+  - lint_and_validate
+  - plan
+  - apply
+
+# Les fichiers .tf sont dans le sous-dossier terraform/ : on s'y place avant
+# chaque job (sinon terraform tourne à la racine et ne voit aucune config).
+variables:
+  TF_ROOT: "${CI_PROJECT_DIR}/terraform"
+  # Nom du state dans le backend Terraform managé par GitLab
+  TF_STATE_NAME: "default"
+  TF_ADDRESS: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/terraform/state/${TF_STATE_NAME}"
+
+default:
+  before_script:
+    - cd "${TF_ROOT}"
+
+# Init avec le backend HTTP du state managé GitLab (auth via CI_JOB_TOKEN).
+# NB : terraform plan/apply nécessitent en plus les credentials OpenStack
+#      (application credential "gitlab-ci-unicampus") en variables CI/CD :
+#        - OS_AUTH_URL
+#        - OS_AUTH_TYPE=v3applicationcredential
+#        - OS_APPLICATION_CREDENTIAL_ID      (masked, protected)
+#        - OS_APPLICATION_CREDENTIAL_SECRET  (masked, protected)
+#        - OS_REGION_NAME
+#        - OS_INTERFACE=public
+#      Et la clé SSH injectée dans les VMs :
+#        - TF_VAR_ssh_public_key
+.tf_init_backend: &tf_init_backend >-
+  terraform init
+  -backend-config="address=${TF_ADDRESS}"
+  -backend-config="lock_address=${TF_ADDRESS}/lock"
+  -backend-config="unlock_address=${TF_ADDRESS}/lock"
+  -backend-config="username=gitlab-ci-token"
+  -backend-config="password=${CI_JOB_TOKEN}"
+  -backend-config="lock_method=POST"
+  -backend-config="unlock_method=DELETE"
+  -backend-config="retry_wait_min=5"
+
+# ---------------------------------------------------------
+# STAGE 1 : S'exécute sur TOUTES les branches (feat, develop, main)
+# ---------------------------------------------------------
+# Ce job ne crée rien. Il vérifie juste que votre code est 
+# syntaxiquement correct et bien indenté.
+terraform_check:
+  stage: lint_and_validate
+  image:
+    name: hashicorp/terraform:latest # (Rappel: préférez une version fixe comme 1.6.0)
+    entrypoint: [""]
+  script:
+    # -backend=false permet d'initier sans se connecter à OpenStack
+    - terraform init -backend=false
+    - terraform fmt -check
+    - terraform validate
+
+# ---------------------------------------------------------
+# STAGE 2 : Le brouillon (Ne crée rien non plus)
+# ---------------------------------------------------------
+# Ce job va lire OpenStack et vous dire ce qu'il COMPTE faire, 
+# sans le faire. Utile quand vous ouvrez une Merge Request.
+terraform_plan:
+  stage: plan
+  image:
+    name: hashicorp/terraform:latest # (Rappel: préférez une version fixe comme 1.6.0)
+    entrypoint: [""]
+  script:
+    - *tf_init_backend
+    - terraform plan
+  rules:
+    # S'exécute uniquement sur develop, main, ou lors d'une Merge Request
+    - if: '$CI_COMMIT_BRANCH == "develop" || $CI_COMMIT_BRANCH == "main" || $CI_MERGE_REQUEST_IID'
+
+# ---------------------------------------------------------
+# STAGE 3 : La création réelle (Strictement MANUEL)
+# ---------------------------------------------------------
+# Ce job est bloqué. Il apparaîtra dans GitLab avec une icône "Play" (▶️).
+# Il attendra indéfiniment que vous cliquiez dessus.
+terraform_apply:
+  stage: apply
+  image:
+    name: hashicorp/terraform:latest # (Rappel: préférez une version fixe comme 1.6.0)
+    entrypoint: [""]
+  script:
+    - *tf_init_backend
+    # -parallelism=6 : compromis entre la valeur défaut (10, qui burst trop
+    # le scheduler Nova sur la zone cisco) et 2 (trop lent, ~6 min).
+    # Si "No valid host was found" reapparait, redescendre à 2 ou 3.
+    - terraform apply -auto-approve -parallelism=6
+  rules:
+    # N'apparaît QUE sur develop et main, et nécessite un clic humain
+    - if: '$CI_COMMIT_BRANCH == "develop" || $CI_COMMIT_BRANCH == "main"'
+      when: manual
