@@ -94,13 +94,14 @@ Il faudra : Configurer les Events pour le SIEM
 
 On utilise les images docker de keycloak, pour ça on va devoir installer docker sur la machine qui va héberger keycloak 
 
-On suit le guide suivant https://blog.stephane-robert.info/docs/services/identite/keycloak/installation/ (adapté à notre environnement )
+On suit le guide suivant https://blog.stephane-robert.info/docs/services/identite/keycloak/installation/ ( à adapté à notre environnement )
 
 ### Installation de Docker 
 https://blog.stephane-robert.info/docs/conteneurs/moteurs-conteneurs/docker/installation/
 
 ### Installation de Keycloak 
 
+https://blog.stephane-robert.info/docs/services/identite/keycloak/installation/ 
 ## Connexion au LDAP 
 
 ## Check List : Check-list avant d'installer
@@ -112,7 +113,7 @@ On répond à une check list pour définir ses besoins
     2 realms au total sur l'instance : le realm master (strictement réservé à l'administration technique du serveur Keycloak par la DSI) et 1 seul realm applicatif (ex: unicampus ou net) pour l'ensemble des populations de l'université.
 
     1 realm par environnement (prod, staging) ? \
-    Non. L'isolation des environnements est physique. Le serveur Keycloak de Test et le serveur Keycloak de Production sont deux VM distinctes exécutant leurs propres conteneurs, garantissant qu'aucune modification ou test de charge n'impacte la production.
+    Non. L'isolation des environnements est physique. Le serveur Keycloak de Test et le serveur Keycloak de Production sont deux VM distinctes exécutant leurs propres conteneurs, garantissant qu'aucune modification ou test de charge n'impacte la production. (on peut soit tout mettre sur la même soit juste un de Prod )
 
     1 realm par tenant (multi-tenant) ? \
     Non. L'établissement utilise un périmètre unique où les utilisateurs sont cloisonnés par rôles globaux et non par étanchéité de realms.
@@ -169,6 +170,16 @@ Côté Application : * Pour Moodle, tu n'as rien à coder. Tu installes simpleme
 
 Pour le Web RH (PHP), tu ajoutes une petite librairie PHP standard (comme jumbojett/openid-connect-php) dans ton code pour que l'application sache "parler" OIDC et rediriger l'utilisateur vers Keycloak.
 
+Pour les bases de données et le ssh on passe par un bastion 
+
+Pour le mail on va ajouter une machine qui héberge Zimbra , c'est une app web on a un OIDC 
+
+### Le bastion 
+
+TO DO 
+
+
+
 ## Keycloak et LDAP 
 
 https://slash-root.fr/keycloak-integration-ldap-externe/ 
@@ -192,3 +203,5 @@ Côté Utilisateur : La prochaine fois qu'un administrateur (ex: le compte de to
 
 ## Keycloak et Reverse Proxy : 
 https://slash-root.fr/keycloak-installation-avec-docker-et-reverse-proxy-ssl-nginx/
+
+
