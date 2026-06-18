@@ -29,3 +29,17 @@ On répartit les machines de la V1 :
 | `uc-net-mail`| 192.168.105.0/24 | `uc-srv-mail` |
 | `uc-net-vpn` | 192.168.106.0/24 | `uc-vpn-legacy` | 
 | `uc-net-dmz`| 192.168.107.0/24 | `uc-srv-moodle` |
+
+
+
+# TO DO : 
+- Ajouter les modifs réseaux dû à Keycloak 
+- Configurer le Reverse Proxy pour que web-rh soit accessible 
+
+Il va falloir installer un reverse Proxy nginx et des certificats SSL : 
+
+Ressources : 
+
+https://slash-root.fr/nginx-installation-dun-reverse-proxy/
+
+https://slash-root.fr/nginx-ajouter-un-certificat-ssl-lets-encrypt-pour-passer-en-https/
