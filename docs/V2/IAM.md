@@ -3,6 +3,7 @@
 
 En gros : comment on va gérer SSO et LDAP , leurs connexions, leurs configurations, comment l'ajouter à l'applicatif 
 
+# Politique de gestion d'accès : 
 Inventaire : 
 
 Identité :
@@ -44,11 +45,11 @@ Ressources :
 - LDAP 
 
 
-# Matrice Globale de Contrôle d'Accès (RBAC) - UniCampus+ V2
+## Matrice Globale de Contrôle d'Accès (RBAC) - UniCampus+ V2
 
 Ce document cartographie l'ensemble des droits d'accès aux ressources du système d'information en fonction des rôles métiers, conformément au principe du moindre privilège.
 
-# Matrice Globale de Contrôle d'Accès (RBAC) - UniCampus+ V2
+## Matrice Globale de Contrôle d'Accès (RBAC) - UniCampus+ V2
 
 Ce document cartographie l'ensemble des droits d'accès aux ressources du système d'information en fonction des rôles métiers, conformément au principe du moindre privilège.
 
@@ -76,3 +77,16 @@ Ce document cartographie l'ensemble des droits d'accès aux ressources du systè
 | **Admin_RH** | `Web_RH` | Accès | Droit de lire et modifier les informations des employés (RIB, Salaires). | 
 | **Externe / Partenaire** | `Moodle` | Accès (Externe) | Accès restreint en tant qu'invité ou auditeur libre. | 
 | **Externe / Partenaire** | `VPN` | Accès | Accès distant très restreint et temporaire. |
+
+
+# Implémentation du SSO 
+
+Outil :  Keycloak
+
+Motivation : Outil open source, Keycloak est plus adapté que Kerberos, ce dernier est plutôt utilisable dans le cas d'application interne. 
+
+L'ensemble de la documentation technique et des détails d'implémentation est dans `keycloak.md` /keycloak.md 
+
+
+
+
