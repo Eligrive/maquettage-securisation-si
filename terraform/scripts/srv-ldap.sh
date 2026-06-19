@@ -39,55 +39,115 @@ olcRootPW: ${ADMIN_HASH}
 EOF
 sleep 1
 
-# --- Peuplement : OUs + comptes (cf. §6.1) ---
+# --- Peuplement : OUs + comptes (cf. §6.1 et IAM.md) ---
 cat > /tmp/uc-base.ldif <<'EOF'
 dn: ou=people,dc=unicampus,dc=local
 objectClass: organizationalUnit
 ou: people
 
-dn: ou=groups,dc=unicampus,dc=local
-objectClass: organizationalUnit
-ou: groups
+# ========== ÉTUDIANTS ==========
 
 dn: uid=lmartin,ou=people,dc=unicampus,dc=local
 objectClass: inetOrgPerson
-objectClass: posixAccount
 uid: lmartin
-cn: Lea Martin
 sn: Martin
 givenName: Lea
-uidNumber: 10001
-gidNumber: 10001
-homeDirectory: /home/lmartin
-loginShell: /bin/bash
+title: Etudiant
 mail: lea.martin@unicampus.local
-userPassword: unicampus2024
+endscol: 20260619
+
+dn: uid=sgarnier,ou=people,dc=unicampus,dc=local
+objectClass: inetOrgPerson
+uid: sgarnier
+sn: Garnier
+givenName: Sophie
+title: Etudiant
+mail: sophie.garnier@unicampus.local
+endscol: 20260901
+
+dn: uid=mbernard,ou=people,dc=unicampus,dc=local
+objectClass: inetOrgPerson
+uid: mbernard
+sn: Bernard
+givenName: Marc
+title: Etudiant
+mail: marc.bernard@unicampus.local
+endscol: 20270630
+
+# ========== PROFESSEURS ==========
 
 dn: uid=jdupont,ou=people,dc=unicampus,dc=local
 objectClass: inetOrgPerson
-objectClass: posixAccount
 uid: jdupont
-cn: Jean-Pierre Dupont
 sn: Dupont
 givenName: Jean-Pierre
-uidNumber: 10002
-gidNumber: 10002
-homeDirectory: /home/jdupont
-loginShell: /bin/bash
+title: Professeur
 mail: j.dupont@unicampus.local
-userPassword: unicampus2024
+endscol: 20270630
 
-dn: cn=etudiants,ou=groups,dc=unicampus,dc=local
-objectClass: posixGroup
-cn: etudiants
-gidNumber: 20001
-memberUid: lmartin
+dn: uid=mduchamp,ou=people,dc=unicampus,dc=local
+objectClass: inetOrgPerson
+uid: mduchamp
+sn: Duchamp
+givenName: Martine
+title: Professeur
+mail: martine.duchamp@unicampus.local
+endscol: 20270630
 
-dn: cn=enseignants,ou=groups,dc=unicampus,dc=local
-objectClass: posixGroup
-cn: enseignants
-gidNumber: 20002
-memberUid: jdupont
+# ========== CHERCHEURS ==========
+
+dn: uid=lfouquet,ou=people,dc=unicampus,dc=local
+objectClass: inetOrgPerson
+uid: lfouquet
+sn: Fouquet
+givenName: Laurent
+title: Chercheur
+mail: laurent.fouquet@unicampus.local
+endscol: 20270630
+
+# ========== Admin ==========
+
+dn: uid=eparfait,ou=people,dc=unicampus,dc=local
+objectClass: inetOrgPerson
+uid: eparfait
+sn: Parfait
+givenName: Eric
+title: Admin
+mail: eric.parfait@unicampus.local
+endscol: 20270630
+
+# ========== DSI ==========
+
+dn: uid=jmoreau,ou=people,dc=unicampus,dc=local
+objectClass: inetOrgPerson
+uid: jmoreau
+sn: Moreau
+givenName: Jean
+title: DSI
+mail: jean.moreau@unicampus.local
+endscol: 20270630
+
+# ========== RH ==========
+
+dn: uid=elauren,ou=people,dc=unicampus,dc=local
+objectClass: inetOrgPerson
+uid: elauren
+sn: Lauren
+givenName: Elise
+title: RH
+mail: elise.lauren@unicampus.local
+endscol: 20280630
+# ========== INTERVENANT EXTERNE ==========
+
+dn: uid=pexternal,ou=people,dc=unicampus,dc=local
+objectClass: inetOrgPerson
+uid: pexternal
+sn: External
+givenName: Pierre
+title: Intervenant Externe
+mail: pierre.external@unicampus.local
+endscol: 20290630
+
 EOF
 
 ldapadd -x -D "cn=admin,dc=unicampus,dc=local" -w unicampus2024 -f /tmp/uc-base.ldif
