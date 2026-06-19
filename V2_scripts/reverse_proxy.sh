@@ -8,6 +8,11 @@
 CONF_AVAILABLE="/etc/nginx/sites-available/unicampus"
 CONF_ENABLED="/etc/nginx/sites-enabled/unicampus"
 
+
+# Remplace ces valeurs par les chemins réels une fois tes certificats générés
+SSL_CERT_PATH=""
+SSL_KEY_PATH=""
+
 echo "Début de la configuration automatisée du Reverse Proxy..."
 
 # 1. Vérification des droits administrateur
@@ -19,23 +24,26 @@ fi
 # 2. Écriture du fichier de configuration Nginx
 echo "Écriture du fichier de configuration dans $CONF_AVAILABLE..."
 
-cat << 'EOF' > "$CONF_AVAILABLE"
+cat << EOF > "$CONF_AVAILABLE"
 # ==========================================
 # 1. SSO - KEYCLOAK (Zone DMZ)
 # ==========================================
 server {
-    listen 443 #On utilise le HTTPS;
+    listen 443 ssl;
     server_name sso.unicampus.fr;
+
+    ssl_certificate ${SSL_CERT_PATH};
+    ssl_certificate_key ${SSL_KEY_PATH};
 
     location / {
         proxy_pass http://192.168.107.3:8080; 
 
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme; 
-        proxy_set_header X-Forwarded-Host $host;
-        proxy_set_header X-Forwarded-Port $server_port;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme; 
+        proxy_set_header X-Forwarded-Host \$host;
+        proxy_set_header X-Forwarded-Port \$server_port;
     }
 }
 
@@ -43,16 +51,19 @@ server {
 # 2. PORTAIL RH (Zone Privée RH)
 # ==========================================
 server {
-    listen 80;
+    listen 443 ssl;
     server_name rh.unicampus.fr;
+
+    ssl_certificate ${SSL_CERT_PATH};
+    ssl_certificate_key ${SSL_KEY_PATH};
 
     location / {
         proxy_pass http://192.168.104.2:80; 
         
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
     }
 }
 
@@ -60,16 +71,39 @@ server {
 # 3. WEBMAIL - ROUNDCUBE (Zone DMZ)
 # ==========================================
 server {
-    listen 80;
+    listen 443 ssl;
     server_name mail.unicampus.fr;
+
+    ssl_certificate ${SSL_CERT_PATH};
+    ssl_certificate_key ${SSL_KEY_PATH};
 
     location / {
         proxy_pass http://192.168.107.4:80; 
         
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+
+# ==========================================
+# 4. BASTION - TELEPORT (Zone Admin)
+# ==========================================
+server {
+    listen 443 ssl;
+    server_name bastion.unicampus.fr;
+
+    ssl_certificate ${SSL_CERT_PATH};
+    ssl_certificate_key ${SSL_KEY_PATH};
+
+    location / {
+        proxy_pass http://192.168.103.2:3080; 
+        
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
     }
 }
 EOF
