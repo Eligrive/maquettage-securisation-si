@@ -23,7 +23,7 @@ On répartit les machines de la V1 :
 On ajoute les machines de la V2 : 
 | `uc-srv-roundcube` | m1.small | Ubuntu 22.04 | Mail  (Roundcube) | 
 | `uc-srv-sso` | m1.small | Ubuntu 22.04 | keycloak | 
-| `uc-srv-bastion`| m1.small | | teleport |
+| `uc-srv-bastion`| m1.small |  Ubuntu 22.04 | teleport |
 
 | Réseau | CIDR | Hôtes |
 |---|---|---|
