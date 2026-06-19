@@ -78,7 +78,7 @@ server {
     ssl_certificate_key ${SSL_KEY_PATH};
 
     location / {
-        proxy_pass http://192.168.107.4:80; 
+        proxy_pass http://192.168.107.2:80; 
         
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -106,6 +106,27 @@ server {
         proxy_set_header X-Forwarded-Proto \$scheme;
     }
 }
+
+# ==========================================
+# 5. PLATEFORME PÉDAGOGIQUE - MOODLE (Zone DMZ)
+# ==========================================
+server {
+    listen 443 ssl;
+    server_name moodle.unicampus.fr;
+
+    ssl_certificate ${SSL_CERT_PATH};
+    ssl_certificate_key ${SSL_KEY_PATH};
+
+    location / {
+        proxy_pass http://192.168.107.1:80; 
+        
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+
 EOF
 
 # 3. Désactivation de la configuration par défaut de Nginx (pour éviter les conflits)

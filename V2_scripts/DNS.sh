@@ -14,6 +14,7 @@ $PROXY_IP    rh.unicampus.fr
 $PROXY_IP    mail.unicampus.fr
 $PROXY_IP    sso.unicampus.fr
 $PROXY_IP    bastion.unicampus.fr
+$PROXY_IP    moodle.unicampus.fr
 EOF
 
     echo "Configuration DNS terminée."
