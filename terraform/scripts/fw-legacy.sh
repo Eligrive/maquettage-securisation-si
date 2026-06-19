@@ -132,8 +132,24 @@ iptables -P INPUT ACCEPT
 iptables -P FORWARD ACCEPT
 iptables -P OUTPUT ACCEPT
 
+# --- Blocage trafic Etudiants <-> RH/Recherche ---
+# Blocage étudiants -> RH
+iptables -A FORWARD -s 192.168.101.0/24 -d 192.168.104.0/24 -j DROP
+
+# Blocage RH -> étudiants
+iptables -A FORWARD -s 192.168.104.0/24 -d 192.168.101.0/24 -j DROP
+
+# Blocage étudiants -> recherche
+iptables -A FORWARD -s 192.168.101.0/24 -d 192.168.102.0/24 -j DROP
+
+#Blocage recherche -> étudiants
+iptables -A FORWARD -s 192.168.102.0/24 -d 192.168.101.0/24 -j DROP
+
 # Règle résiduelle (vestige d'une ancienne conf, cf. archi §6.1)
 iptables -A INPUT -p tcp --dport 8080 -j ACCEPT
+
+# Autorisation HTTPS extérieur -> DMZ
+iptables -A FORWARD -d 192.168.107.0/24 -p tcp --dport 443 -j ACCEPT
 
 # --- ÉTAPE 6 : DNAT ingress (services exposés sur les alias DMZ) ---
 # Chaque FIP s'associe à une alias DMZ de fw-legacy (cf. floating_ips.tf) ;
