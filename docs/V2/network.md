@@ -61,16 +61,6 @@ Et le firewall qui est tout seul
 `uc-srv-firewall`: 192.168.108.1
 
 
-
-
-
-
-
-
-
-
-
-
 # TO DO : 
 - Ajouter les modifs réseaux dû à Keycloak 
 - Configurer le Reverse Proxy pour que web-rh soit accessible 
