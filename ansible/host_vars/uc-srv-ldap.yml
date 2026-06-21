@@ -1,0 +1,7 @@
+---
+# Annuaire OpenLDAP (slapd). Surveillance des bind (échecs d'auth, bind anonyme),
+# modifications d'entrées. slapd journalise via syslog (local4) -> /var/log/ldap.log
+# si configuré, sinon /var/log/syslog (déjà couvert par défaut).
+wazuh_agent_logfiles:
+  - format: "syslog"
+    location: "/var/log/ldap.log"

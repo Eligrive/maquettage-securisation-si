@@ -1,0 +1,8 @@
+---
+# Base RH (MariaDB). Données sensibles (salaires, IBAN). On remonte les logs
+# d'erreur et le general/slow query log s'ils sont activés.
+wazuh_agent_logfiles:
+  - format: "syslog"
+    location: "/var/log/mysql/error.log"
+  - format: "mysql_log"
+    location: "/var/log/mysql/mysql.log"

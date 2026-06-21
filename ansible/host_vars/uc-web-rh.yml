@@ -1,0 +1,8 @@
+---
+# Portail RH (Apache + PHP). Cible privilégiée (SO3 : injection SQL, accès non
+# authentifié). On surveille finement les accès web.
+wazuh_agent_logfiles:
+  - format: "apache"
+    location: "/var/log/apache2/access.log"
+  - format: "apache"
+    location: "/var/log/apache2/error.log"

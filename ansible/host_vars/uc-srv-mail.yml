@@ -1,0 +1,8 @@
+---
+# Messagerie (Postfix + Dovecot). Détection brute-force IMAP/SMTP, relais,
+# tentatives d'authentification. Wazuh décode nativement le format mail.log.
+wazuh_agent_logfiles:
+  - format: "syslog"
+    location: "/var/log/mail.log"
+  - format: "syslog"
+    location: "/var/log/mail.err"

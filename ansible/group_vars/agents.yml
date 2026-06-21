@@ -1,0 +1,13 @@
+---
+# ============================================================================
+#  Variables du groupe [agents] — rebond SSH via le bastion/firewall
+# ============================================================================
+#
+# Les hôtes de ce groupe n'ont pas de Floating IP : on les atteint par
+# ProxyJump à travers ssh_jump_host (défini dans group_vars/all.yml ou en CI).
+# Si ssh_jump_host est vide, la connexion est directe (utile en local quand on
+# est déjà dans le réseau, ou via VPN).
+
+ansible_ssh_common_args: >-
+  {% if ssh_jump_host | length > 0 %}-o ProxyJump={{ ssh_jump_host }}{% endif %}
+  -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no

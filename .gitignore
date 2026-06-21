@@ -23,6 +23,12 @@ app-cred-*
 # Configuration locale Claude Code
 .claude/
 
+# Artefacts Ansible (lot Supervision/SIEM)
+# Inventaire généré depuis les outputs Terraform (contient la Floating IP réelle)
+ansible/inventory/hosts.generated.ini
+# Identifiants Wazuh rapatriés par le rôle wazuh_manager (mots de passe en clair)
+ansible/.wazuh-credentials/
+
 # Artefacts Python / scripts analyse-risque
 __pycache__/
 analyse-risque/.build_a4_graphs/

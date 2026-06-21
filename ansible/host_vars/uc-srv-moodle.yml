@@ -1,0 +1,10 @@
+---
+# Moodle : Apache (accès/erreurs) + MariaDB local. Détection web (scans, injection,
+# brute-force login) et erreurs applicatives.
+wazuh_agent_logfiles:
+  - format: "apache"
+    location: "/var/log/apache2/access.log"
+  - format: "apache"
+    location: "/var/log/apache2/error.log"
+  - format: "syslog"
+    location: "/var/log/mysql/error.log"

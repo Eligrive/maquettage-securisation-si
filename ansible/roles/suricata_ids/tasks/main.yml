@@ -1,0 +1,124 @@
+---
+# ============================================================================
+#  Rôle suricata_ids — Suricata sur le firewall central (inline inter-VLAN)
+# ============================================================================
+#
+# Placement : le firewall est le SEUL point de passage entre tous les VLAN
+# (topologie « VM-routeur » Neutron, cf. network.tf). C'est donc l'emplacement
+# naturel d'une sonde réseau : tout le trafic inter-zones y transite.
+#
+#   * Mode IDS (défaut)  : af-packet, détection passive, ne bloque rien.
+#   * Mode IPS (optionnel): NFQUEUE, prévention inline avec --queue-bypass
+#     (fail-open : si Suricata tombe, le trafic continue de passer).
+#
+# Les alertes (eve.json) sont lues par l'agent Wazuh du firewall et corrélées
+# dans le SIEM (cf. group_vars/firewall.yml -> wazuh_agent_logfiles).
+
+- name: Vérifier que l'OS est de la famille Debian/Ubuntu
+  ansible.builtin.assert:
+    that: ansible_facts['os_family'] == "Debian"
+    fail_msg: "Le rôle suricata_ids cible Ubuntu/Debian."
+
+- name: Installer Suricata
+  ansible.builtin.apt:
+    name:
+      - suricata
+      - jq
+    state: present
+    update_cache: true
+  retries: 3
+  delay: 10
+  register: _apt_suricata
+  until: _apt_suricata is succeeded
+
+- name: Déterminer l'interface de capture
+  ansible.builtin.set_fact:
+    suricata_capture_iface: >-
+      {{ ansible_default_ipv4.interface
+         if suricata_interface == 'auto'
+         else suricata_interface }}
+
+- name: Définir HOME_NET dans suricata.yaml
+  ansible.builtin.replace:
+    path: /etc/suricata/suricata.yaml
+    regexp: '^(\s*HOME_NET:\s*).*$'
+    replace: '\1"{{ suricata_home_net }}"'
+  notify: restart suricata
+
+- name: Pointer l'interface af-packet sur l'interface de capture
+  ansible.builtin.replace:
+    path: /etc/suricata/suricata.yaml
+    # Premier "interface:" de la section af-packet (défaut "eth0").
+    regexp: '(\n\s*-\s*interface:\s*)\S+'
+    replace: '\g<1>{{ suricata_capture_iface }}'
+    count: 1
+  when: suricata_mode == "ids"
+  notify: restart suricata
+
+# --- /etc/default/suricata (sourcé par l'unité systemd Debian/Ubuntu) -------
+- name: Configurer le mode d'écoute (LISTENMODE)
+  ansible.builtin.lineinfile:
+    path: /etc/default/suricata
+    regexp: '^LISTENMODE='
+    line: "LISTENMODE={{ 'nfqueue' if suricata_mode == 'ips' else 'af-packet' }}"
+    create: true
+  notify: restart suricata
+
+- name: Configurer l'interface (mode IDS)
+  ansible.builtin.lineinfile:
+    path: /etc/default/suricata
+    regexp: '^IFACE='
+    line: "IFACE={{ suricata_capture_iface }}"
+    create: true
+  when: suricata_mode == "ids"
+  notify: restart suricata
+
+- name: Configurer le numéro de queue (mode IPS)
+  ansible.builtin.lineinfile:
+    path: /etc/default/suricata
+    regexp: '^NFQUEUE='
+    line: "NFQUEUE={{ suricata_nfqueue_num }}"
+    create: true
+  when: suricata_mode == "ips"
+  notify: restart suricata
+
+# --- Mode IPS : redirection du FORWARD vers NFQUEUE -------------------------
+# --queue-bypass = fail-open. NB : à intégrer dans le ruleset persistant du
+# firewall (fw-legacy.sh / nftables) pour survivre à un reboot ; ici on pose
+# la règle à chaud et de façon idempotente.
+- name: "IPS - vérifier la présence de la règle NFQUEUE"
+  ansible.builtin.command:
+    cmd: "iptables -C FORWARD -j NFQUEUE --queue-num {{ suricata_nfqueue_num }} --queue-bypass"
+  register: _nfq_check
+  failed_when: false
+  changed_when: false
+  when: suricata_mode == "ips"
+
+- name: "IPS - insérer la règle NFQUEUE dans FORWARD"
+  ansible.builtin.command:
+    cmd: "iptables -I FORWARD -j NFQUEUE --queue-num {{ suricata_nfqueue_num }} --queue-bypass"
+  when:
+    - suricata_mode == "ips"
+    - _nfq_check.rc is defined and _nfq_check.rc != 0
+
+# --- Règles ET Open ---------------------------------------------------------
+- name: Télécharger/mettre à jour les règles (Emerging Threats Open)
+  ansible.builtin.command:
+    cmd: suricata-update
+    creates: /var/lib/suricata/rules/suricata.rules
+  when: suricata_ruleset_enabled
+  notify: restart suricata
+
+# --- Validation de la configuration avant (re)démarrage ---------------------
+- name: Valider la configuration Suricata
+  ansible.builtin.command:
+    cmd: "suricata -T -c /etc/suricata/suricata.yaml -v"
+  register: _suri_test
+  changed_when: false
+  failed_when: _suri_test.rc != 0
+
+- name: Activer et démarrer Suricata
+  ansible.builtin.systemd:
+    name: suricata
+    state: started
+    enabled: true

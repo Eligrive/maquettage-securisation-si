@@ -1,0 +1,8 @@
+---
+# Webmail Roundcube (Apache/Nginx + PHP). Surveillance des accès web et des
+# tentatives d'authentification webmail.
+wazuh_agent_logfiles:
+  - format: "apache"
+    location: "/var/log/apache2/access.log"
+  - format: "apache"
+    location: "/var/log/apache2/error.log"
