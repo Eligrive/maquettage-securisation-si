@@ -1,0 +1,11 @@
+---
+# ============================================================================
+#  Rôle web_rh — portail web RH (ex scripts/web-rh.sh)
+# ============================================================================
+# Apache + PHP interrogeant uc-db-rh. SQLi volontaire, HTTP en clair, aucune
+# auth (un seul rôle implicite, cf. SO3/SO5).
+
+webrh_db_host: "192.168.107.20"
+webrh_db_user: "rhapp"
+webrh_db_pass: "rh2024"
+webrh_db_name: "rh"

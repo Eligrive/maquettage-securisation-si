@@ -1,6 +1,24 @@
 ---
-# Serveur recherche : NFS + Samba + PostgreSQL + Jupyter. Surveillance des accès
-# partages et de la base recherche.
+# ============================================================================
+#  uc-calc-recherche — calcul recherche (NFS + Samba + PostgreSQL + Jupyter)
+# ============================================================================
+
+# --- Provisioning maquette (rôle calc_recherche + comptes + leurres) --------
+# Comptes nominatifs (cred reuse) + compte applicatif "partenaire" pa1 dont les
+# credentials "fuités" servent SO4 (accès aux données scientifiques partagées).
+maquette_accounts:
+  - { name: jdupont, password: unicampus2024 }
+  - { name: sleblanc, password: recherche2024 }
+  - { name: dsi, password: admin2024, sudo_nopasswd: true }
+  - { name: pa1, password: partenaire2024 }
+
+# Données de recherche (leurres) déposées dans le partage NFS/Samba.
+loot_assets_dir: calc-recherche
+loot_dests:
+  - { path: /opt/loot, owner: root, group: root }
+  - { path: /srv/recherche, owner: root, group: root }
+
+# --- Supervision (agent Wazuh) ----------------------------------------------
 wazuh_agent_logfiles:
   - format: "syslog"
     location: "/var/log/samba/log.smbd"

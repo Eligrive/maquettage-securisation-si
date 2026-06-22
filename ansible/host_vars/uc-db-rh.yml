@@ -1,6 +1,16 @@
 ---
-# Base RH (MariaDB). Données sensibles (salaires, IBAN). On remonte les logs
-# d'erreur et le general/slow query log s'ils sont activés.
+# ============================================================================
+#  uc-db-rh — base RH MariaDB
+# ============================================================================
+
+# --- Provisioning maquette (rôle db_rh + comptes) ---------------------------
+# BDD = pas d'utilisateur métier, seulement le compte d'admin DSI réutilisé.
+maquette_accounts:
+  - { name: dsi, password: admin2024, sudo_nopasswd: true }
+
+# --- Supervision (agent Wazuh) ----------------------------------------------
+# Données sensibles (salaires, IBAN). On remonte les logs d'erreur et le
+# general/slow query log s'ils sont activés.
 wazuh_agent_logfiles:
   - format: "syslog"
     location: "/var/log/mysql/error.log"

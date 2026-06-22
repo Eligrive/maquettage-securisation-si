@@ -1,0 +1,18 @@
+---
+# ============================================================================
+#  Rôle srv_moodle — LMS Moodle (ex scripts/srv-moodle.sh)
+# ============================================================================
+# Apache + PHP + MariaDB locale, HTTP en clair, aucune politique de mot de passe
+# (vulns volontaires §4.2/§6.2).
+
+moodle_branch: "MOODLE_404_STABLE"
+moodle_db_name: "moodle"
+moodle_db_user: "moodle"
+moodle_db_pass: "unicampus2024"
+moodle_admin_pass: "Admin2024" # volontairement faible
+
+# Moodle redirige toutes les requêtes vers wwwroot : ce doit être l'URL PUBLIQUE
+# (Floating IP), sinon les clients externes sont renvoyés vers l'IP interne
+# inaccessible. Surchargé en CI/local par -e moodle_wwwroot=http://<FIP_moodle>
+# (cf. output terraform moodle_floating_ip). Fallback = IP interne (debug local).
+moodle_wwwroot: "http://192.168.107.12"

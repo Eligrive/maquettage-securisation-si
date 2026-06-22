@@ -1,0 +1,12 @@
+[Unit]
+Description=Jupyter Notebook (maquette vulnérable)
+After=network.target
+
+[Service]
+User={{ calc_pg_user }}
+WorkingDirectory={{ calc_share_path }}
+ExecStart=/opt/jupyter-venv/bin/jupyter-notebook --ip=0.0.0.0 --port=8888 --no-browser --NotebookApp.token='' --NotebookApp.password='' --notebook-dir={{ calc_share_path }}
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

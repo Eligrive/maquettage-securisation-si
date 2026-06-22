@@ -1,0 +1,27 @@
+---
+# ============================================================================
+#  uc-poste-etu — poste étudiant / machine attaquante (rôle poste)
+# ============================================================================
+# L'image Kali n'étant pas bootable sur l'OpenStack école, on installe un
+# outillage offensif de base sur Ubuntu.
+
+poste_packages:
+  - nmap
+  - netcat-openbsd
+  - python3
+  - python3-pip
+  - curl
+  - git
+  - hydra
+  - nfs-common
+  - smbclient
+  - ldap-utils
+
+poste_files:
+  - dest: /home/ubuntu/README.txt
+    owner: ubuntu
+    group: ubuntu
+    content: |
+      Poste etudiant / attaquant (uc-poste-etu)
+      Outils installes : nmap, netcat, hydra, smbclient, nfs-common, ldap-utils.
+      Cible : sous-reseau 192.168.107.0/24 (maquette UniCampus+).

@@ -1,7 +1,10 @@
 ---
 # ============================================================================
-#  Playbook maître — lot Supervision (SIEM Wazuh + IDS/IPS Suricata)
+#  Playbook — lot Supervision (SIEM Wazuh + IDS/IPS Suricata)
 # ============================================================================
+#
+# Importé par site.yml APRÈS provision.yml (la maquette doit exister avant qu'on
+# y installe les agents). Jouable seul pour ne (re)déployer que la supervision.
 #
 # Ordre voulu :
 #   1. Déployer le manager (le SIEM doit écouter avant l'enrôlement des agents).
@@ -11,8 +14,9 @@
 #
 # Exécution :
 #   cd ansible/
-#   ansible-playbook site.yml                 # topologie segmentée (hosts.ini)
-#   ansible-playbook -i inventory/hosts.flat.ini site.yml   # topologie flat
+#   ansible-playbook site.yml                 # build maquette + supervision (segmenté)
+#   ansible-playbook supervision.yml          # supervision seule
+#   ansible-playbook -i inventory/hosts.flat.ini supervision.yml   # flat
 #
 # Tags : --tags siem | ids | agents pour ne jouer qu'une partie.
 

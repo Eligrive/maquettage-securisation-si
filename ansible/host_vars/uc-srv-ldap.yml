@@ -1,7 +1,17 @@
 ---
-# Annuaire OpenLDAP (slapd). Surveillance des bind (échecs d'auth, bind anonyme),
-# modifications d'entrées. slapd journalise via syslog (local4) -> /var/log/ldap.log
-# si configuré, sinon /var/log/syslog (déjà couvert par défaut).
+# ============================================================================
+#  uc-srv-ldap — annuaire OpenLDAP
+# ============================================================================
+
+# --- Provisioning maquette (rôle srv_ldap + comptes) ------------------------
+# Compte d'admin DSI réutilisé partout (cf. leurre mail), admin local.
+maquette_accounts:
+  - { name: dsi, password: admin2024, sudo_nopasswd: true }
+
+# --- Supervision (agent Wazuh) ----------------------------------------------
+# slapd journalise via syslog (local4) -> /var/log/ldap.log si configuré, sinon
+# /var/log/syslog (déjà couvert par défaut). Surveillance des bind (échecs
+# d'auth, bind anonyme) et modifications d'entrées.
 wazuh_agent_logfiles:
   - format: "syslog"
     location: "/var/log/ldap.log"

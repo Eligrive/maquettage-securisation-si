@@ -1,0 +1,20 @@
+---
+# ============================================================================
+#  Rôle maquette_accounts — comptes Unix nominatifs (cred-reuse volontaire)
+# ============================================================================
+#
+# Centralise la logique dupliquée dans presque tous les anciens scripts cloud-init :
+# création de comptes Unix dont le mot de passe est RÉUTILISÉ à l'identique dans les
+# applications associées (Moodle, LDAP, mail, RH, recherche...) et un compte 'dsi'
+# administrateur (sudo NOPASSWD) présent partout. C'est le ressort de la
+# latéralisation par réutilisation de credentials (absence de SSO).
+#
+# Format (défini par host_vars/<hote>.yml) :
+#   maquette_accounts:
+#     - { name: jdupont, password: unicampus2024 }
+#     - { name: dsi,     password: admin2024, sudo_nopasswd: true }
+#     - { name: ubuntu,  create_user: false,  sudo_nopasswd: true }  # compte existant
+#
+# Clés : name (requis) ; password (clair, optionnel) ; sudo_nopasswd (bool, défaut
+# false) ; create_user (bool, défaut true) ; shell (défaut /bin/bash).
+maquette_accounts: []

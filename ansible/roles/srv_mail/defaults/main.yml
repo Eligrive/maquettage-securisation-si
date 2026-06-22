@@ -1,0 +1,11 @@
+---
+# ============================================================================
+#  Rôle srv_mail — messagerie en clair (ex scripts/srv-mail.sh)
+# ============================================================================
+# SMTP 25 / IMAP 143 / POP3 110, auth plaintext, pas de TLS, relais ouvert
+# (mynetworks 0.0.0.0/0) — vulns volontaires §6.2.
+
+mail_domain: "unicampus.local"
+
+# Boîte qui héberge le leurre (mail DSI diffusant le compte d'admin en clair).
+mail_decoy_user: "jdupont"

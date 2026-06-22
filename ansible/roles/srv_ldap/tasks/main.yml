@@ -1,0 +1,93 @@
+---
+# ============================================================================
+#  Rôle srv_ldap — slapd (suffixe dc=unicampus,dc=local, clair, bind anonyme)
+# ============================================================================
+
+- name: Pré-seed debconf pour une install slapd non interactive
+  ansible.builtin.debconf:
+    name: slapd
+    question: "{{ item.q }}"
+    vtype: "{{ item.t }}"
+    value: "{{ item.v }}"
+  loop:
+    - { q: "slapd/domain", t: "string", v: "{{ ldap_domain }}" }
+    - { q: "shared/organization", t: "string", v: "{{ ldap_org }}" }
+    - { q: "slapd/password1", t: "password", v: "{{ ldap_admin_password }}" }
+    - { q: "slapd/password2", t: "password", v: "{{ ldap_admin_password }}" }
+    - { q: "slapd/internal/adminpw", t: "password", v: "{{ ldap_admin_password }}" }
+    - { q: "slapd/internal/generated_adminpw", t: "password", v: "{{ ldap_admin_password }}" }
+    - { q: "slapd/no_configuration", t: "boolean", v: "false" }
+    - { q: "slapd/purge_database", t: "boolean", v: "true" }
+    - { q: "slapd/move_old_database", t: "boolean", v: "true" }
+  loop_control:
+    label: "{{ item.q }}"
+  no_log: true
+
+- name: Installer slapd et ldap-utils
+  ansible.builtin.apt:
+    name:
+      - slapd
+      - ldap-utils
+    state: present
+    update_cache: true
+  retries: 3
+  delay: 10
+  register: _apt_ldap
+  until: _apt_ldap is succeeded
+
+- name: slapd écoute en clair (ldap:/// + ldapi:///)
+  ansible.builtin.lineinfile:
+    path: /etc/default/slapd
+    regexp: '^SLAPD_SERVICES='
+    line: 'SLAPD_SERVICES="ldap:/// ldapi:///"'
+  notify: restart slapd
+
+- name: Appliquer la conf slapd avant les opérations LDAP
+  ansible.builtin.meta: flush_handlers
+
+# --- rootDN password : dpkg-reconfigure ignore parfois le preseed -> le mdp admin
+#     reste l'aléatoire généré à l'install. On le force via ldapmodify EXTERNAL,
+#     uniquement si le bind échoue (idempotence : slappasswd a un sel aléatoire). -
+- name: Tester le bind admin
+  ansible.builtin.command:
+    cmd: "ldapwhoami -x -H ldapi:/// -D cn=admin,{{ ldap_base_dn }} -w {{ ldap_admin_password }}"
+  register: _ldap_bind
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Forcer le rootDN password (olcRootPW) si le bind échoue
+  ansible.builtin.shell: |
+    set -e
+    HASH=$(slappasswd -s '{{ ldap_admin_password }}')
+    ldapmodify -Y EXTERNAL -H ldapi:/// <<EOF
+    dn: olcDatabase={1}mdb,cn=config
+    changetype: modify
+    replace: olcRootPW
+    olcRootPW: $HASH
+    EOF
+  when: _ldap_bind.rc != 0
+  no_log: true
+
+# --- Peuplement : OUs + comptes (idempotent : add seulement si absent) --------
+- name: Déposer le LDIF de peuplement
+  ansible.builtin.template:
+    src: uc-base.ldif.j2
+    dest: /tmp/uc-base.ldif
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Vérifier si l'arbre est déjà peuplé (ou=people)
+  ansible.builtin.command:
+    cmd: "ldapsearch -x -H ldapi:/// -b ou=people,{{ ldap_base_dn }} -s base dn"
+  register: _ldap_people
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Peupler l'annuaire (OUs + comptes)
+  ansible.builtin.command:
+    cmd: "ldapadd -x -H ldapi:/// -D cn=admin,{{ ldap_base_dn }} -w {{ ldap_admin_password }} -f /tmp/uc-base.ldif"
+  when: _ldap_people.rc != 0
+  no_log: true

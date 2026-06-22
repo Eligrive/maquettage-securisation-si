@@ -1,0 +1,163 @@
+---
+# ============================================================================
+#  Rôle calc_recherche — NFS + Samba + PostgreSQL + Jupyter (sans auth)
+# ============================================================================
+
+- name: Installer NFS, Samba, PostgreSQL et Python
+  ansible.builtin.apt:
+    name:
+      - nfs-kernel-server
+      - samba
+      - postgresql
+      - python3-pip
+      - python3-venv
+    state: present
+    update_cache: true
+  retries: 3
+  delay: 10
+  register: _apt_calc
+  until: _apt_calc is succeeded
+
+- name: Créer le partage de données recherche (permissif, vuln volontaire)
+  ansible.builtin.file:
+    path: "{{ calc_share_path }}"
+    state: directory
+    mode: "0777"
+
+# --- NFS : export monde entier, no_root_squash (vuln volontaire) -------------
+- name: Exporter {{ calc_share_path }} en NFS (no_root_squash)
+  ansible.builtin.lineinfile:
+    path: /etc/exports
+    regexp: "^{{ calc_share_path | regex_escape }}\\s"
+    line: "{{ calc_share_path }} *(rw,sync,no_root_squash,no_subtree_check)"
+    create: true
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reexport nfs
+
+- name: Activer et démarrer le serveur NFS
+  ansible.builtin.systemd:
+    name: nfs-kernel-server
+    state: started
+    enabled: true
+
+# --- Samba : partage ouvert en invité + partage "partenaires" authentifié ----
+- name: Configurer les partages Samba
+  ansible.builtin.blockinfile:
+    path: /etc/samba/smb.conf
+    marker: "# {mark} ANSIBLE MANAGED: partages maquette (calc_recherche)"
+    block: |
+      [recherche]
+         path = {{ calc_share_path }}
+         browseable = yes
+         read only = no
+         guest ok = yes
+         force user = root
+
+      [partenaires]
+         path = {{ calc_share_path }}
+         browseable = yes
+         read only = no
+         valid users = {{ calc_samba_valid_users }}
+         force user = root
+  notify: restart smbd
+
+- name: Activer et démarrer Samba
+  ansible.builtin.systemd:
+    name: smbd
+    state: started
+    enabled: true
+
+- name: Lister les comptes Samba existants
+  ansible.builtin.command:
+    cmd: pdbedit -L
+  register: _pdbedit
+  changed_when: false
+  failed_when: false
+
+- name: Définir les mots de passe Samba (comptes manquants)
+  ansible.builtin.shell: >-
+    printf '%s\n%s\n' '{{ item.password }}' '{{ item.password }}' | smbpasswd -a -s {{ item.user }}
+  loop: "{{ calc_smb_users }}"
+  loop_control:
+    label: "{{ item.user }}"
+  when: (item.user ~ ':') not in (_pdbedit.stdout | default(''))
+  no_log: true
+
+# --- PostgreSQL local : base résultats expérimentaux (idempotent) -----------
+- name: Vérifier le rôle PostgreSQL {{ calc_pg_user }}
+  ansible.builtin.command:
+    cmd: "sudo -u postgres psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='{{ calc_pg_user }}'\""
+  register: _pg_role
+  changed_when: false
+
+- name: Créer le rôle PostgreSQL
+  ansible.builtin.command:
+    cmd: "sudo -u postgres psql -c \"CREATE USER {{ calc_pg_user }} WITH PASSWORD '{{ calc_pg_pass }}'\""
+  when: (_pg_role.stdout | trim) != '1'
+  no_log: true
+
+- name: Vérifier la base PostgreSQL {{ calc_pg_db }}
+  ansible.builtin.command:
+    cmd: "sudo -u postgres psql -tAc \"SELECT 1 FROM pg_database WHERE datname='{{ calc_pg_db }}'\""
+  register: _pg_db
+  changed_when: false
+
+- name: Créer la base PostgreSQL
+  ansible.builtin.command:
+    cmd: "sudo -u postgres psql -c \"CREATE DATABASE {{ calc_pg_db }}\""
+  when: (_pg_db.stdout | trim) != '1'
+
+- name: Octroyer les privilèges sur la base
+  ansible.builtin.command:
+    cmd: "sudo -u postgres psql -c \"GRANT ALL PRIVILEGES ON DATABASE {{ calc_pg_db }} TO {{ calc_pg_user }}\""
+  changed_when: false
+
+# --- Jupyter sans token ni mot de passe (0.0.0.0:8888) ----------------------
+# venv isolé : sur Ubuntu 24.04 le paquet apt python3-traitlets casse pip
+# (RECORD manquant) -> import error -> service en crash loop. Le venv isole.
+- name: Créer le compte de service Jupyter
+  ansible.builtin.user:
+    name: "{{ calc_pg_user }}"
+    shell: /bin/bash
+    create_home: true
+
+- name: Créer le venv Jupyter
+  ansible.builtin.command:
+    cmd: python3 -m venv /opt/jupyter-venv
+    creates: /opt/jupyter-venv/bin/activate
+
+- name: Mettre à jour pip dans le venv
+  ansible.builtin.command:
+    cmd: /opt/jupyter-venv/bin/pip install --quiet --upgrade pip
+    creates: /opt/jupyter-venv/bin/jupyter-notebook
+  changed_when: false
+
+- name: Installer notebook dans le venv
+  ansible.builtin.command:
+    cmd: /opt/jupyter-venv/bin/pip install --quiet notebook
+    creates: /opt/jupyter-venv/bin/jupyter-notebook
+
+- name: Donner le partage au compte de service (recherche:sleblanc)
+  ansible.builtin.file:
+    path: "{{ calc_share_path }}"
+    owner: "{{ calc_pg_user }}"
+    group: sleblanc
+    recurse: true
+
+- name: Déployer l'unité systemd Jupyter
+  ansible.builtin.template:
+    src: jupyter.service.j2
+    dest: /etc/systemd/system/jupyter.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart jupyter
+
+- name: Activer et démarrer Jupyter
+  ansible.builtin.systemd:
+    name: jupyter
+    state: started
+    enabled: true
+    daemon_reload: true
