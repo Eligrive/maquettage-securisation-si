@@ -1,75 +1,95 @@
 # cloudinit.tf
-# Construit, par VM, un user_data shell BRUT combinant :
-#   1. Le dépôt des assets PDF (heredoc base64 inline)
-#   2. Le bootstrap commun _bootstrap.sh (sauf fw-legacy)
-#   3. Le script de configuration spécifique scripts/<vm>.sh
+# ============================================================================
+#  user_data MINIMAL par VM — le provisioning applicatif est délégué à Ansible.
+# ============================================================================
 #
-# Pourquoi PAS le data source `cloudinit_config` (multipart MIME) ?
+# Migration cloud-init -> Ansible (cf. ansible/) : Terraform ne fait plus que
+# l'INFRASTRUCTURE (VM, réseau, FIP). Tout le provisioning logiciel (paquets,
+# config des services, comptes, leurres) est désormais joué par Ansible, qui est
+# idempotent, piloté par l'inventaire et rejouable sans recréer les VMs.
+#
+# cloud-init est réduit au strict minimum nécessaire pour qu'Ansible puisse se
+# connecter :
+#   - VMs Ubuntu : hostname cohérent + garantie d'un python3 (interpréteur
+#     Ansible). L'accès SSH par clé est déjà fourni par le keypair (keypair.tf).
+#   - fw-legacy (Debian 10) : bring-up réseau minimal (route par défaut côté DMZ
+#     + persistance) pour que sa Floating IP réponde et que les VMs internes
+#     soient atteintes par rebond. La politique firewall complète (forwarding,
+#     NAT/DNAT, alias DMZ, persistance) est jouée par le rôle Ansible fw_legacy.
+#
+# Pourquoi PAS le data source cloudinit_config (multipart MIME) ?
 # Cloud-init plante sur ShellScriptPartHandler au moment d'enregistrer les
 # parts text/x-shellscript dans /var/lib/cloud/instance/scripts/ (warning
-# "Failed calling handler" dans cloud-init-output.log). Conséquence : les
-# scripts ne sont JAMAIS exécutés en modules:final → les VMs bootent avec
-# une image cloud Ubuntu vanilla, sans Apache/Postfix/MariaDB/… installés.
-# Bug observé sur cloud-init 18.3 (Debian 10) ET 24.4.1 (Ubuntu 24.04).
-#
-# Bypass : on envoie un seul shellscript bash brut. Cloud-init le détecte
-# via son shebang (#!/bin/bash) et l'exécute en modules:final sans passer
-# par le ShellScriptPartHandler.
+# "Failed calling handler") -> les scripts ne sont jamais exécutés. Bug observé
+# sur cloud-init 18.3 (Debian 10) ET 24.4.1 (Ubuntu 24.04). On envoie donc un
+# shellscript bash brut, détecté via son shebang et exécuté en modules:final.
 
 locals {
   # Toutes les VMs (IP fixe + postes DHCP)
   all_vms = merge(local.vms_fixed, local.vms_dhcp)
 
-  # VMs disposant d'un dossier d'assets (assets/<dir>/) à déployer
-  asset_dirs = {
-    srv-moodle     = "srv-moodle"
-    web-rh         = "web-rh"
-    calc-recherche = "calc-recherche"
-    srv-mail       = "srv-mail"
-    poste-dsi      = "poste-dsi"
-  }
-
-  bootstrap_content = file("${path.module}/scripts/_bootstrap.sh")
-
-  # Bloc d'exports FIP_<NAME>=<addr> injectées par Terraform dans le user_data
-  # de chaque VM. Permet aux scripts setup-<vm>.sh de référencer la FIP
-  # d'autres services à l'install (ex: srv-moodle a besoin de FIP_SRV_MOODLE
-  # pour wwwroot Moodle, sinon les clients externes sont redirigés vers l'IP
-  # interne inaccessible).
-  fip_exports = join("\n", concat(
-    ["# FIPs injectées par Terraform (cloudinit.tf)"],
-    [
-      for k, v in openstack_networking_floatingip_v2.public :
-      "export FIP_${replace(upper(k), "-", "_")}=\"${v.address}\""
-    ]
-  ))
-
-  # Bloc shell qui dépose les assets dans /opt/loot. filebase64 retourne
-  # une seule ligne de base64 ; on l'enveloppe dans un heredoc 'EOF_LOOT'
-  # (pas d'interpolation, content base64 ne contient que [A-Za-z0-9+/=]).
-  asset_blocks = {
+  # --- Bootstrap minimal générique (Ubuntu) --------------------------------
+  # Hostname aligné sur l'inventaire Ansible (uc-<vm>) + python3 garanti.
+  generic_user_data = {
     for vm_key in keys(local.all_vms) :
-    vm_key => contains(keys(local.asset_dirs), vm_key) ? join("\n", concat(
-      ["mkdir -p /opt/loot"],
-      [
-        for f in fileset("${path.module}/../assets/${local.asset_dirs[vm_key]}", "*.pdf") :
-        "base64 -d > '/opt/loot/${f}' <<'EOF_LOOT'\n${filebase64("${path.module}/../assets/${local.asset_dirs[vm_key]}/${f}")}\nEOF_LOOT"
-      ]
-    )) : "# (no assets for ${vm_key})"
+    vm_key => <<-EOT
+      #!/bin/bash
+      # cloud-init minimal — provisioning applicatif délégué à Ansible (cf. ansible/).
+      set -x
+      exec > /var/log/uc-bootstrap.log 2>&1
+      export DEBIAN_FRONTEND=noninteractive
+      hostnamectl set-hostname ${var.resource_prefix}-${vm_key} || true
+      command -v python3 >/dev/null 2>&1 || { apt-get update && apt-get install -y python3; }
+      echo "uc-bootstrap minimal done (${var.resource_prefix}-${vm_key})"
+    EOT
   }
 
-  # user_data combiné par VM. fw-legacy garde son script seul (pas de
-  # bootstrap, c'est Debian 10 géré séparément cf. scripts/fw-legacy.sh).
-  user_data = {
-    for vm_key in keys(local.all_vms) :
-    vm_key => vm_key == "fw-legacy" ? file("${path.module}/scripts/fw-legacy.sh") : join("\n\n", [
-      "#!/bin/bash",
-      "# Combined user_data (FIP exports + assets + bootstrap + setup)",
-      "# Bypass du multipart cloudinit_config (cf. cloudinit.tf)",
-      local.fip_exports,
-      local.asset_blocks[vm_key],
-      local.bootstrap_content,
-      file("${path.module}/scripts/${vm_key}.sh"),
-    ])
-  }
+  # --- Bring-up réseau minimal de fw-legacy (Debian 10) --------------------
+  # Le subnet campus annonce .2 (fw-legacy lui-même) comme gateway DHCP : sans
+  # override, fw-legacy enverrait son propre trafic à lui-même. On force la
+  # route par défaut via le routeur Neutron (côté DMZ) et on la persiste via un
+  # hook dhclient (le RENEW campus repousserait sinon .2 comme gateway). C'est
+  # le minimum pour que la Floating IP de fw-legacy réponde et qu'Ansible se
+  # connecte ; le reste (forwarding, NAT, DNAT, alias DMZ) est fait par le rôle
+  # Ansible fw_legacy.
+  fw_legacy_user_data = <<-EOT
+    #!/bin/bash
+    # cloud-init minimal fw-legacy — route par défaut côté DMZ. Firewall = Ansible.
+    set -x
+    exec > /var/log/uc-bootstrap.log 2>&1
+    export DEBIAN_FRONTEND=noninteractive
+
+    NEUTRON_ROUTER=${local.dmz_router_ip}
+
+    # Attendre que l'interface DMZ ait son IP (10.0.0.2) puis forcer la route.
+    for i in $(seq 1 30); do
+      DMZ_IF=$(ip -o -4 addr show 2>/dev/null | awk '/10\.0\.0\.2\// {print $2; exit}')
+      [ -n "$DMZ_IF" ] && break
+      # Au bout de ~20s, forcer DHCP sur les NIC sans IP (cloud-init ne configure
+      # parfois que l'interface primaire).
+      if [ "$i" = "10" ]; then
+        for iface in $(ls /sys/class/net | grep -vE '^(lo|docker|veth)'); do
+          ip -4 addr show "$iface" 2>/dev/null | grep -q 'inet ' || dhclient "$iface" 2>/dev/null || true
+        done
+      fi
+      sleep 2
+    done
+
+    # Persistance de la route par défaut via un hook dhclient (printf pour
+    # éviter un heredoc bash imbriqué dans le heredoc Terraform). $reason reste
+    # littéral (variable du hook), %s est rempli par $NEUTRON_ROUTER.
+    mkdir -p /etc/dhcp/dhclient-exit-hooks.d
+    printf '#!/bin/sh\ncase "$reason" in\n  BOUND|RENEW|REBIND|REBOOT) ip route replace default via %s 2>/dev/null || true ;;\nesac\n' "$NEUTRON_ROUTER" > /etc/dhcp/dhclient-exit-hooks.d/uc-override-gateway
+    chmod +x /etc/dhcp/dhclient-exit-hooks.d/uc-override-gateway
+    ip route replace default via "$NEUTRON_ROUTER" 2>/dev/null || true
+
+    # python3 pour Ansible (présent par défaut sur l'image cloud Debian).
+    command -v python3 >/dev/null 2>&1 || { apt-get update && apt-get install -y python3; }
+    echo "uc-bootstrap minimal fw-legacy done"
+  EOT
+
+  # user_data final : générique pour toutes les VMs, override pour fw-legacy.
+  user_data = merge(local.generic_user_data, {
+    fw-legacy = local.fw_legacy_user_data
+  })
 }
