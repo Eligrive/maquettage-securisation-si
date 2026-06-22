@@ -16,8 +16,10 @@
 #
 # Tags : --tags siem | ids | agents pour ne jouer qu'une partie.
 
-- name: Attendre que toutes les VMs soient joignables en SSH
-  hosts: all
+- name: Attendre que les hôtes supervisés soient joignables en SSH
+  # Cible le groupe [wazuh] (siem + agents) et NON [all] : les postes BYOD
+  # (groupe [postes_byod]) ne sont pas provisionnés et peuvent être injoignables.
+  hosts: wazuh
   gather_facts: false
   tasks:
     - name: Attendre la connexion SSH (VMs fraîchement déployées / cloud-init)

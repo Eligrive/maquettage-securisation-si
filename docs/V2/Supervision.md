@@ -102,13 +102,38 @@ pas faire tourner d'agent.
 | `uc-srv-bastion` (Teleport) | critique | **audit log Teleport** (qui/quand/quelle session SSH) |
 | `uc-vpn-legacy` | critique | logs VPN |
 | `firewall central` | critique | **Suricata eve.json** + iptables/kernel |
-| `uc-poste-*`, `uc-srv-roundcube` | standard | logs système + Apache (webmail) |
+| `uc-srv-roundcube` | standard | logs système + Apache (webmail) |
 
 Les logs système de base (`/var/log/auth.log`, `syslog`, `journald`, FIM sur
 `/etc`, `/usr/bin`…) sont collectés par défaut par l'agent, sur **tous** les
-hôtes. Le détail par hôte est dans
+hôtes sous agent. Le détail par hôte est dans
 [`ansible/host_vars/`](../../ansible/host_vars/) et
 [`ansible/group_vars/firewall.yml`](../../ansible/group_vars/firewall.yml).
+
+#### Cas des postes BYOD (étudiant, enseignant, DSI)
+
+Les postes utilisateurs sont des appareils **BYOD** (personnels, non
+administrés). On **n'y déploie donc pas d'agent** : on n'a ni les droits ni la
+pérennité nécessaires (un BYOD se réinstalle / change), et y pousser un agent de
+type EDR poserait des problèmes de propriété et de vie privée. Ils sont rangés
+dans le groupe d'inventaire `[postes_byod]`, **hors** de `[agents]` : aucun rôle
+ne s'exécute dessus.
+
+Leur supervision se fait **indirectement**, ce qui est la bonne pratique pour du
+BYOD considéré comme non fiable :
+
+- **Réseau** : toute leur activité traverse le firewall central → vue par la
+  sonde **Suricata** (scans, exploits, C2, exfiltration).
+- **Services** : ce qu'ils consomment est déjà sous agent (Moodle/Apache, mail,
+  **SSO Keycloak** = source d'autorité des authentifications, VPN).
+- **Admin** : toute action privilégiée passe par le **bastion** (Teleport),
+  journalisé — l'endpoint utilisé importe peu.
+
+> *Option démo* : dans la maquette, `uc-poste-etu` est en réalité une VM (poste
+> attaquant). Si l'on veut **montrer la détection côté hôte** des outils
+> offensifs, on peut exceptionnellement le basculer dans `[agents_noncritical]`
+> pour lui mettre un agent. Ça ne reflète pas le modèle BYOD réel mais enrichit
+> la démonstration.
 
 ### 2.4 IDS/IPS — Suricata sur le firewall central
 
