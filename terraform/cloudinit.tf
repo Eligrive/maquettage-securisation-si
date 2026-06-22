@@ -1,37 +1,29 @@
 # cloudinit.tf
 # ============================================================================
-#  user_data MINIMAL par VM — le provisioning applicatif est délégué à Ansible.
+#  user_data MINIMAL par VM — provisioning applicatif délégué à Ansible.
 # ============================================================================
 #
-# Migration cloud-init -> Ansible (cf. ansible/) : Terraform ne fait plus que
-# l'INFRASTRUCTURE (VM, réseau, FIP). Tout le provisioning logiciel (paquets,
-# config des services, comptes, leurres) est désormais joué par Ansible, qui est
-# idempotent, piloté par l'inventaire et rejouable sans recréer les VMs.
+# Terraform = infrastructure (VM, réseau segmenté, FIP) + cloud-init minimal.
+# Tout le provisioning logiciel (paquets, config, comptes, leurres, politique
+# pare-feu) est joué par Ansible (cf. ansible/), idempotent et rejouable.
 #
-# cloud-init est réduit au strict minimum nécessaire pour qu'Ansible puisse se
-# connecter :
-#   - VMs Ubuntu : hostname cohérent + garantie d'un python3 (interpréteur
-#     Ansible). L'accès SSH par clé est déjà fourni par le keypair (keypair.tf).
-#   - fw-legacy (Debian 10) : bring-up réseau minimal (route par défaut côté DMZ
-#     + persistance) pour que sa Floating IP réponde et que les VMs internes
-#     soient atteintes par rebond. La politique firewall complète (forwarding,
-#     NAT/DNAT, alias DMZ, persistance) est jouée par le rôle Ansible fw_legacy.
+# cloud-init est réduit au strict nécessaire pour qu'Ansible se connecte :
+#   - VMs métier : hostname (uc-<vm>) + garantie d'un python3.
+#   - firewall central : route par défaut côté transit (pour que sa Floating IP
+#     réponde et que les VMs internes soient atteintes par rebond). Forwarding +
+#     NAT + filtrage inter-VLAN = rôle Ansible fw_central.
 #
-# Pourquoi PAS le data source cloudinit_config (multipart MIME) ?
-# Cloud-init plante sur ShellScriptPartHandler au moment d'enregistrer les
-# parts text/x-shellscript dans /var/lib/cloud/instance/scripts/ (warning
-# "Failed calling handler") -> les scripts ne sont jamais exécutés. Bug observé
-# sur cloud-init 18.3 (Debian 10) ET 24.4.1 (Ubuntu 24.04). On envoie donc un
-# shellscript bash brut, détecté via son shebang et exécuté en modules:final.
+# Pourquoi un shellscript brut et pas cloudinit_config (multipart) ? Cloud-init
+# plante sur ShellScriptPartHandler (Debian 10 ET Ubuntu 24.04) ; le shebang
+# #!/bin/bash est exécuté directement en modules:final.
 
 locals {
-  # Toutes les VMs (IP fixe + postes DHCP)
-  all_vms = merge(local.vms_fixed, local.vms_dhcp)
+  # VMs métier (le firewall central a son propre user_data ci-dessous).
+  all_vms = keys(local.vm_ips)
 
   # --- Bootstrap minimal générique (Ubuntu) --------------------------------
-  # Hostname aligné sur l'inventaire Ansible (uc-<vm>) + python3 garanti.
-  generic_user_data = {
-    for vm_key in keys(local.all_vms) :
+  user_data = {
+    for vm_key in local.all_vms :
     vm_key => <<-EOT
       #!/bin/bash
       # cloud-init minimal — provisioning applicatif délégué à Ansible (cf. ansible/).
@@ -44,52 +36,35 @@ locals {
     EOT
   }
 
-  # --- Bring-up réseau minimal de fw-legacy (Debian 10) --------------------
-  # Le subnet campus annonce .2 (fw-legacy lui-même) comme gateway DHCP : sans
-  # override, fw-legacy enverrait son propre trafic à lui-même. On force la
-  # route par défaut via le routeur Neutron (côté DMZ) et on la persiste via un
-  # hook dhclient (le RENEW campus repousserait sinon .2 comme gateway). C'est
-  # le minimum pour que la Floating IP de fw-legacy réponde et qu'Ansible se
-  # connecte ; le reste (forwarding, NAT, DNAT, alias DMZ) est fait par le rôle
-  # Ansible fw_legacy.
-  fw_legacy_user_data = <<-EOT
+  # --- Bring-up réseau minimal du firewall central -------------------------
+  # Le firewall a un pied sur chaque VLAN (gateway .254) et un pied transit
+  # (.108.1). Le DHCP de chaque VLAN pousserait une route par défaut : on force
+  # la route par défaut côté transit (routeur Neutron .108.254) et on la persiste
+  # via un hook dhclient. Le reste (forwarding, NAT, DNAT, filtrage) = Ansible.
+  firewall_user_data = <<-EOT
     #!/bin/bash
-    # cloud-init minimal fw-legacy — route par défaut côté DMZ. Firewall = Ansible.
+    # cloud-init minimal firewall central — route par defaut cote transit.
     set -x
     exec > /var/log/uc-bootstrap.log 2>&1
     export DEBIAN_FRONTEND=noninteractive
 
-    NEUTRON_ROUTER=${local.dmz_router_ip}
+    hostnamectl set-hostname ${var.resource_prefix}-srv-firewall || true
+    TRANSIT_GW=${local.transit_gw_ip}
 
-    # Attendre que l'interface DMZ ait son IP (10.0.0.2) puis forcer la route.
+    # Attendre que l'interface transit ait son IP (.108.1) puis forcer la route.
     for i in $(seq 1 30); do
-      DMZ_IF=$(ip -o -4 addr show 2>/dev/null | awk '/10\.0\.0\.2\// {print $2; exit}')
-      [ -n "$DMZ_IF" ] && break
-      # Au bout de ~20s, forcer DHCP sur les NIC sans IP (cloud-init ne configure
-      # parfois que l'interface primaire).
-      if [ "$i" = "10" ]; then
-        for iface in $(ls /sys/class/net | grep -vE '^(lo|docker|veth)'); do
-          ip -4 addr show "$iface" 2>/dev/null | grep -q 'inet ' || dhclient "$iface" 2>/dev/null || true
-        done
-      fi
+      TRANSIT_IF=$(ip -o -4 addr show 2>/dev/null | awk '/${replace(local.fw_transit_ip, ".", "\\.")}\// {print $2; exit}')
+      [ -n "$TRANSIT_IF" ] && break
       sleep 2
     done
 
-    # Persistance de la route par défaut via un hook dhclient (printf pour
-    # éviter un heredoc bash imbriqué dans le heredoc Terraform). $reason reste
-    # littéral (variable du hook), %s est rempli par $NEUTRON_ROUTER.
+    # Persistance de la route par défaut via un hook dhclient.
     mkdir -p /etc/dhcp/dhclient-exit-hooks.d
-    printf '#!/bin/sh\ncase "$reason" in\n  BOUND|RENEW|REBIND|REBOOT) ip route replace default via %s 2>/dev/null || true ;;\nesac\n' "$NEUTRON_ROUTER" > /etc/dhcp/dhclient-exit-hooks.d/uc-override-gateway
+    printf '#!/bin/sh\ncase "$reason" in\n  BOUND|RENEW|REBIND|REBOOT) ip route replace default via %s 2>/dev/null || true ;;\nesac\n' "$TRANSIT_GW" > /etc/dhcp/dhclient-exit-hooks.d/uc-override-gateway
     chmod +x /etc/dhcp/dhclient-exit-hooks.d/uc-override-gateway
-    ip route replace default via "$NEUTRON_ROUTER" 2>/dev/null || true
+    ip route replace default via "$TRANSIT_GW" 2>/dev/null || true
 
-    # python3 pour Ansible (présent par défaut sur l'image cloud Debian).
     command -v python3 >/dev/null 2>&1 || { apt-get update && apt-get install -y python3; }
-    echo "uc-bootstrap minimal fw-legacy done"
+    echo "uc-bootstrap minimal firewall done"
   EOT
-
-  # user_data final : générique pour toutes les VMs, override pour fw-legacy.
-  user_data = merge(local.generic_user_data, {
-    fw-legacy = local.fw_legacy_user_data
-  })
 }

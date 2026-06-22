@@ -1,107 +1,146 @@
 # network.tf
+# ============================================================================
+#  Topologie V2 SEGMENTÉE (cf. docs/V2/network.md)
+# ============================================================================
+#
+# 7 VLAN internes, un par zone métier. Le pare-feu central uc-srv-firewall est
+# la GATEWAY (.254) de chaque VLAN interne : il n'y a PAS de router_interface
+# Neutron sur ces subnets, donc TOUT le trafic inter-VLAN traverse le firewall
+# (qui filtre, cf. rôle Ansible fw_central). C'est la généralisation du pattern
+# « VM-routeur inline » utilisé en V1 par fw-legacy.
+#
+# Un réseau de TRANSIT (192.168.108.0/24) relie le firewall au routeur Neutron :
+#   - egress  : VM interne -> firewall (.254) -> SNAT -> transit -> routeur Neutron -> Internet
+#   - ingress : FIP -> routeur Neutron -> alias transit du firewall -> DNAT -> service interne
+#
+# Le routeur Neutron porte des ROUTES STATIQUES (chaque VLAN interne -> firewall)
+# pour que le réseau de supervision SOC (uc-net-soc, cf. siem.tf, rattaché au même
+# routeur) puisse joindre les agents Wazuh à travers le firewall.
+#
+# port_security_enabled = false partout : comme en V1, le firewall effectif est
+# iptables sur le firewall central, pas les Security Groups OpenStack (l'OVS
+# firewall droppe sinon les paquets forwardés au niveau du bridge).
 
 locals {
-  # --- Campus 192.168.107.0/24 (subnet interne des VMs) ---
-  # Gateway DHCP = fw-legacy (.2). Le subnet n'a PLUS d'interface routeur
-  # Neutron : la seule sortie vers Internet est fw-legacy, qui forwarde via
-  # son interface DMZ vers le routeur Neutron. Tout l'ingress (FIPs) et
-  # l'egress traversent donc fw-legacy.
-  subnet_gateway  = cidrhost(var.subnet_cidr, 2) # 192.168.107.2 (fw-legacy)
-  dhcp_pool_start = cidrhost(var.subnet_cidr, 100)
-  dhcp_pool_end   = cidrhost(var.subnet_cidr, 200)
+  # IP du firewall central sur chaque VLAN interne (= gateway du VLAN).
+  fw_vlan_ip_octet = 254
 
-  fixed_ips = {
-    fw-legacy      = cidrhost(var.subnet_cidr, 2)  # 192.168.107.2 (= subnet_gateway)
-    vpn-legacy     = cidrhost(var.subnet_cidr, 3)  # 192.168.107.3
-    srv-mail       = cidrhost(var.subnet_cidr, 10) # 192.168.107.10
-    srv-ldap       = cidrhost(var.subnet_cidr, 11) # 192.168.107.11
-    srv-moodle     = cidrhost(var.subnet_cidr, 12) # 192.168.107.12
-    web-rh         = cidrhost(var.subnet_cidr, 14) # 192.168.107.14
-    calc-recherche = cidrhost(var.subnet_cidr, 15) # 192.168.107.15
-    db-rh          = cidrhost(var.subnet_cidr, 20) # 192.168.107.20
+  # VLAN internes (cf. docs/V2/network.md). DHCP activé partout : les ports à IP
+  # fixe reçoivent leur réservation, et les VMs obtiennent IP + gateway (.254)
+  # sans dépendre du datasource config-drive. Pool .100-.200 (hors IP fixes).
+  internal_vlans = {
+    user      = { cidr = "192.168.101.0/24" } # étudiants/profs
+    recherche = { cidr = "192.168.102.0/24" } # calc-recherche
+    admin     = { cidr = "192.168.103.0/24" } # DSI / bastion
+    rh        = { cidr = "192.168.104.0/24" } # ldap/web-rh/db-rh
+    mail      = { cidr = "192.168.105.0/24" } # mail
+    vpn       = { cidr = "192.168.106.0/24" } # vpn
+    dmz       = { cidr = "192.168.107.0/24" } # moodle (+roundcube/sso V2)
   }
 
-  # --- DMZ 10.0.0.0/24 (entre fw-legacy et routeur Neutron) ---
-  # 10.0.0.1 = routeur Neutron (gateway DMZ)
-  # 10.0.0.2 = fw-legacy primary (SSH admin)
-  # 10.0.0.3-6 = alias sur le port fw-legacy DMZ, une IP par service exposé.
-  # Chaque FIP s'associe à une de ces IPs via fixed_ip_address ; fw-legacy
-  # fait ensuite le DNAT iptables vers l'IP campus correspondante.
-  dmz_cidr      = "10.0.0.0/24"
-  dmz_router_ip = "10.0.0.1"
+  # Réseau de transit firewall <-> routeur Neutron.
+  transit_cidr  = "192.168.108.0/24"
+  fw_transit_ip = cidrhost(local.transit_cidr, 1)   # 192.168.108.1 (firewall)
+  transit_gw_ip = cidrhost(local.transit_cidr, 254) # 192.168.108.254 (routeur Neutron)
 
-  fw_dmz_ips = {
-    fw-legacy  = "10.0.0.2" # SSH 22 (terminé localement, pas de DNAT)
-    vpn-legacy = "10.0.0.3" # PPTP 1723 + GRE → 192.168.107.3
-    srv-mail   = "10.0.0.4" # SMTP/IMAP/POP3 → 192.168.107.10
-    srv-moodle = "10.0.0.5" # HTTP 80 → 192.168.107.12
-    web-rh     = "10.0.0.6" # HTTP 80 → 192.168.107.14
+  # IP fixe du firewall sur chaque VLAN interne.
+  fw_vlan_ips = {
+    for k, v in local.internal_vlans : k => cidrhost(v.cidr, local.fw_vlan_ip_octet)
+  }
+
+  # IP fixes des VMs internes (cf. docs/V2/network.md).
+  vm_ips = {
+    poste-etu      = "192.168.101.1"
+    poste-prof     = "192.168.101.2"
+    calc-recherche = "192.168.102.1"
+    poste-dsi      = "192.168.103.1"
+    srv-ldap       = "192.168.104.1"
+    web-rh         = "192.168.104.2"
+    db-rh          = "192.168.104.3"
+    srv-mail       = "192.168.105.1"
+    vpn-legacy     = "192.168.106.1"
+    srv-moodle     = "192.168.107.1"
+  }
+
+  # VLAN d'appartenance de chaque VM.
+  vm_vlan = {
+    poste-etu      = "user"
+    poste-prof     = "user"
+    calc-recherche = "recherche"
+    poste-dsi      = "admin"
+    srv-ldap       = "rh"
+    web-rh         = "rh"
+    db-rh          = "rh"
+    srv-mail       = "mail"
+    vpn-legacy     = "vpn"
+    srv-moodle     = "dmz"
+  }
+
+  # Services exposés en Floating IP : chaque service a une IP alias sur le port
+  # transit du firewall, qui fait le DNAT vers l'IP interne du service.
+  fw_transit_aliases = {
+    vpn-legacy = "192.168.108.10" # PPTP 1723 + GRE -> 192.168.106.1
+    srv-mail   = "192.168.108.11" # SMTP/IMAP/POP3 -> 192.168.105.1
+    srv-moodle = "192.168.108.12" # HTTP/HTTPS    -> 192.168.107.1
+    web-rh     = "192.168.108.13" # HTTP          -> 192.168.104.2
   }
 }
 
-# --- Réseau campus (subnet interne) ---
+# --- VLAN internes (network + subnet, gateway = firewall, sans router_interface) ---
 
-# port_security_enabled = false au niveau réseau : c'est le défaut hérité par
-# les ports DHCP créés automatiquement pour les postes (uc-poste-*). OVS
-# firewall avec port_security=true drop les paquets forwardés via fw-legacy
-# au niveau du bridge OVS, AVANT que netfilter ne les voie (typique d'une
-# topologie "VM en routeur" sur Neutron). En le désactivant côté Neutron,
-# le seul firewall qui filtre est fw-legacy lui-même (iptables) — conforme
-# au narratif "maquette vulnérable, pas de filtrage périmétrique cloud".
+resource "openstack_networking_network_v2" "internal" {
+  for_each = local.internal_vlans
 
-resource "openstack_networking_network_v2" "campus" {
-  name                  = "${var.resource_prefix}-net-campus"
+  name                  = "${var.resource_prefix}-net-${each.key}"
   admin_state_up        = true
   port_security_enabled = false
 }
 
-resource "openstack_networking_subnet_v2" "campus" {
-  name       = "${var.resource_prefix}-subnet-campus"
-  network_id = openstack_networking_network_v2.campus.id
-  cidr       = var.subnet_cidr
+resource "openstack_networking_subnet_v2" "internal" {
+  for_each = local.internal_vlans
+
+  name       = "${var.resource_prefix}-subnet-${each.key}"
+  network_id = openstack_networking_network_v2.internal[each.key].id
+  cidr       = each.value.cidr
   ip_version = 4
-  gateway_ip = local.subnet_gateway
 
-  # DHCP activé pour les postes clients (uc-poste-etu, prof, dsi).
-  # Le subnet n'a PAS de router_interface : pas de Floating IP possible
-  # vers les VMs internes, c'est volontaire (toute exposition externe
-  # passe par fw-legacy).
-  enable_dhcp = true
-  allocation_pool {
-    start = local.dhcp_pool_start
-    end   = local.dhcp_pool_end
-  }
+  # Gateway = firewall central (.254). Le subnet n'a PAS de router_interface
+  # Neutron : le firewall est l'unique chemin inter-VLAN et vers l'extérieur.
+  gateway_ip = local.fw_vlan_ips[each.key]
 
+  enable_dhcp     = true
   dns_nameservers = ["8.8.8.8", "1.1.1.1"]
+  allocation_pool {
+    start = cidrhost(each.value.cidr, 100)
+    end   = cidrhost(each.value.cidr, 200)
+  }
 }
 
-# --- Réseau DMZ (entre fw-legacy et routeur Neutron) ---
+# --- Réseau de transit firewall <-> routeur Neutron --------------------------
 
-resource "openstack_networking_network_v2" "dmz" {
-  name                  = "${var.resource_prefix}-net-dmz"
+resource "openstack_networking_network_v2" "transit" {
+  name                  = "${var.resource_prefix}-net-transit"
   admin_state_up        = true
   port_security_enabled = false
 }
 
-resource "openstack_networking_subnet_v2" "dmz" {
-  name       = "${var.resource_prefix}-subnet-dmz"
-  network_id = openstack_networking_network_v2.dmz.id
-  cidr       = local.dmz_cidr
+resource "openstack_networking_subnet_v2" "transit" {
+  name       = "${var.resource_prefix}-subnet-transit"
+  network_id = openstack_networking_network_v2.transit.id
+  cidr       = local.transit_cidr
   ip_version = 4
-  gateway_ip = local.dmz_router_ip
+  gateway_ip = local.transit_gw_ip # routeur Neutron
 
-  enable_dhcp = true
-  allocation_pool {
-    start = "10.0.0.100"
-    end   = "10.0.0.200"
-  }
+  enable_dhcp     = true
   dns_nameservers = ["8.8.8.8", "1.1.1.1"]
+  allocation_pool {
+    start = cidrhost(local.transit_cidr, 100)
+    end   = cidrhost(local.transit_cidr, 200)
+  }
 }
 
-# --- Routeur Neutron : UNIQUEMENT sur la DMZ ---
-# Plus de router_interface campus : c'est ce qui garantit que tout l'ingress
-# externe passe par fw-legacy (les FIPs ne peuvent plus DNAT-er directement
-# vers les VMs internes — Neutron exige un router_interface pour ça).
+# --- Routeur Neutron : porte externe + UNIQUEMENT le transit -----------------
+# (resource address "campus" conservée : siem.tf y rattache le réseau SOC.)
 
 resource "openstack_networking_router_v2" "campus" {
   name                = "${var.resource_prefix}-router-campus"
@@ -109,54 +148,76 @@ resource "openstack_networking_router_v2" "campus" {
   external_network_id = data.openstack_networking_network_v2.ext_net.id
 }
 
-resource "openstack_networking_router_interface_v2" "dmz" {
+resource "openstack_networking_router_interface_v2" "transit" {
   router_id = openstack_networking_router_v2.campus.id
-  subnet_id = openstack_networking_subnet_v2.dmz.id
+  subnet_id = openstack_networking_subnet_v2.transit.id
 }
 
-# --- Port DMZ de fw-legacy (multi fixed_ip pour héberger les FIPs) ---
+# Routes statiques : les VLAN internes sont joignables via le firewall (.108.1).
+# Indispensable pour que le SOC (uc-net-soc, même routeur) atteigne les agents.
+resource "openstack_networking_router_route_v2" "internal_via_fw" {
+  for_each = local.internal_vlans
 
-resource "openstack_networking_port_v2" "fw_dmz" {
-  name           = "${var.resource_prefix}-port-fw-dmz"
-  network_id     = openstack_networking_network_v2.dmz.id
-  admin_state_up = true
+  router_id        = openstack_networking_router_v2.campus.id
+  destination_cidr = each.value.cidr
+  next_hop         = local.fw_transit_ip
 
-  # Port_security off : cf. commentaire sur openstack_networking_network_v2.campus.
-  # fw-legacy doit pouvoir recevoir/émettre des paquets avec n'importe quel
-  # src/dst IP pour faire son boulot de DNAT + routage.
+  depends_on = [openstack_networking_router_interface_v2.transit]
+}
+
+# --- Ports du firewall central : un par VLAN interne + le transit ------------
+
+# Un pied sur chaque VLAN interne (IP .254 = gateway du VLAN).
+resource "openstack_networking_port_v2" "fw_vlan" {
+  for_each = local.internal_vlans
+
+  name                  = "${var.resource_prefix}-port-fw-${each.key}"
+  network_id            = openstack_networking_network_v2.internal[each.key].id
+  admin_state_up        = true
   port_security_enabled = false
   security_group_ids    = []
 
-  # 5 IPs fixes sur le même port. La primaire (.2) est servie par DHCP ;
-  # les autres sont attribuées par cloud-init dans fw-legacy.sh (ip addr
-  # add). Chaque FIP s'associe à une IP fixe précise via fixed_ip_address.
+  fixed_ip {
+    subnet_id  = openstack_networking_subnet_v2.internal[each.key].id
+    ip_address = local.fw_vlan_ips[each.key]
+  }
+}
+
+# Pied transit : IP primaire .108.1 + une IP alias par service exposé (FIP/DNAT).
+resource "openstack_networking_port_v2" "fw_transit" {
+  name                  = "${var.resource_prefix}-port-fw-transit"
+  network_id            = openstack_networking_network_v2.transit.id
+  admin_state_up        = true
+  port_security_enabled = false
+  security_group_ids    = []
+
+  fixed_ip {
+    subnet_id  = openstack_networking_subnet_v2.transit.id
+    ip_address = local.fw_transit_ip
+  }
+
   dynamic "fixed_ip" {
-    for_each = local.fw_dmz_ips
+    for_each = local.fw_transit_aliases
     content {
-      subnet_id  = openstack_networking_subnet_v2.dmz.id
+      subnet_id  = openstack_networking_subnet_v2.transit.id
       ip_address = fixed_ip.value
     }
   }
 }
 
-# --- Ports campus à IP fixe (VMs internes + port campus de fw-legacy) ---
+# --- Ports des VMs internes (IP fixe dans leur VLAN) -------------------------
 
-resource "openstack_networking_port_v2" "fixed" {
-  for_each = local.fixed_ips
+resource "openstack_networking_port_v2" "vm" {
+  for_each = local.vm_ips
 
-  name           = "${var.resource_prefix}-port-${each.key}"
-  network_id     = openstack_networking_network_v2.campus.id
-  admin_state_up = true
-
-  # Port_security off : cf. commentaire sur openstack_networking_network_v2.campus.
-  # Sans ça, OVS firewall drop les paquets forwardés via fw-legacy au niveau
-  # bridge OVS (avant netfilter), ce qui rend impossible le rôle de fw-legacy
-  # comme routeur inline pour egress + ingress DNAT.
+  name                  = "${var.resource_prefix}-port-${each.key}"
+  network_id            = openstack_networking_network_v2.internal[local.vm_vlan[each.key]].id
+  admin_state_up        = true
   port_security_enabled = false
   security_group_ids    = []
 
   fixed_ip {
-    subnet_id  = openstack_networking_subnet_v2.campus.id
+    subnet_id  = openstack_networking_subnet_v2.internal[local.vm_vlan[each.key]].id
     ip_address = each.value
   }
 }

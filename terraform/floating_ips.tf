@@ -1,47 +1,56 @@
 # floating_ips.tf
-# Floating IPs : toutes attachées au port DMZ de fw-legacy, sur une IP
-# fixe distincte (cf. local.fw_dmz_ips dans network.tf). Chaque IP fixe
-# DMZ est dédiée à un service ; fw-legacy fait le DNAT iptables vers la
-# VM cible côté campus.
+# ============================================================================
+#  Floating IPs — toutes portées par le port TRANSIT du firewall central.
+# ============================================================================
 #
-# Cette topologie rend fw-legacy périmétrique : tout l'ingress externe
-# arrive sur fw-legacy avant d'être routé vers les VMs internes.
+# Chaque service exposé a une IP alias sur le port transit du firewall
+# (cf. local.fw_transit_aliases). La FIP s'y associe, et le firewall fait le
+# DNAT iptables vers l'IP interne du service (rôle Ansible fw_central).
 #
-#   FIP fw-legacy → 10.0.0.2 → SSH admin (local sur fw-legacy)
-#   FIP vpn       → 10.0.0.3 → DNAT vers 192.168.107.3   (PPTP 1723 + GRE)
-#   FIP mail      → 10.0.0.4 → DNAT vers 192.168.107.10  (SMTP/IMAP/POP3)
-#   FIP moodle    → 10.0.0.5 → DNAT vers 192.168.107.12  (HTTP 80)
-#   FIP web-rh    → 10.0.0.6 → DNAT vers 192.168.107.14  (HTTP 80, expo vuln SO3)
+#   FIP firewall -> 192.168.108.1  -> SSH admin (rebond Ansible/ProxyJump)
+#   FIP vpn      -> 192.168.108.10 -> DNAT 192.168.106.1 (PPTP 1723 + GRE)
+#   FIP mail     -> 192.168.108.11 -> DNAT 192.168.105.1 (SMTP/IMAP/POP3)
+#   FIP moodle   -> 192.168.108.12 -> DNAT 192.168.107.1 (HTTP/HTTPS)
+#   FIP web-rh   -> 192.168.108.13 -> DNAT 192.168.104.2 (HTTP)
+#
+# Le SIEM a sa propre FIP (cf. siem.tf, réseau SOC routé par le routeur Neutron).
 
+# --- FIP admin du firewall (rebond SSH des VMs internes sans FIP) ------------
+resource "openstack_networking_floatingip_v2" "firewall" {
+  pool        = data.openstack_networking_network_v2.ext_net.name
+  description = "${var.resource_prefix}-fip-firewall"
+}
+
+resource "openstack_networking_floatingip_associate_v2" "firewall" {
+  floating_ip = openstack_networking_floatingip_v2.firewall.address
+  port_id     = openstack_networking_port_v2.fw_transit.id
+  fixed_ip    = local.fw_transit_ip
+
+  depends_on = [openstack_networking_router_interface_v2.transit]
+}
+
+# --- FIP des services exposés (DNAT par le firewall) ------------------------
 resource "openstack_networking_floatingip_v2" "public" {
-  for_each = local.fw_dmz_ips
+  for_each = local.fw_transit_aliases
 
   pool        = data.openstack_networking_network_v2.ext_net.name
   description = "${var.resource_prefix}-fip-${each.key}"
 }
 
 resource "openstack_networking_floatingip_associate_v2" "public" {
-  for_each = local.fw_dmz_ips
+  for_each = local.fw_transit_aliases
 
   floating_ip = openstack_networking_floatingip_v2.public[each.key].address
-  port_id     = openstack_networking_port_v2.fw_dmz.id
+  port_id     = openstack_networking_port_v2.fw_transit.id
   fixed_ip    = each.value
 
-  # Sans l'interface routeur reliant la DMZ au réseau externe, Neutron
-  # refuse d'attacher un FIP avec ExternalGatewayForFloatingIPNotFound.
-  depends_on = [openstack_networking_router_interface_v2.dmz]
+  depends_on = [openstack_networking_router_interface_v2.transit]
 }
 
-# ---------------------------------------------------------------------------
-# Outputs — consommés par le provisioning Ansible (cf. ansible/).
-# ---------------------------------------------------------------------------
-# Les services exposés (mail/moodle/web-rh/vpn) sont atteints depuis l'extérieur
-# par leur Floating IP. srv_moodle en a besoin : Moodle redirige toutes les
-# requêtes vers son wwwroot, qui doit donc être l'URL publique (FIP) et non l'IP
-# interne. Passé à Ansible via -e moodle_wwwroot=http://<FIP> (cf. .gitlab-ci.yml).
+# --- Outputs — consommés par le provisioning Ansible (cf. ansible/) ----------
 
 output "public_floating_ips" {
-  description = "Floating IPs des services exposés via fw-legacy (clé = service)."
+  description = "Floating IPs des services exposés via le firewall (clé = service)."
   value       = { for k, v in openstack_networking_floatingip_v2.public : k => v.address }
 }
 
@@ -50,7 +59,7 @@ output "moodle_floating_ip" {
   value       = openstack_networking_floatingip_v2.public["srv-moodle"].address
 }
 
-output "fw_legacy_floating_ip" {
-  description = "Floating IP de fw-legacy (rebond SSH/ProxyJump des VMs internes en topologie flat)."
-  value       = openstack_networking_floatingip_v2.public["fw-legacy"].address
+output "firewall_floating_ip" {
+  description = "Floating IP du firewall central (rebond SSH/ProxyJump des VMs internes)."
+  value       = openstack_networking_floatingip_v2.firewall.address
 }

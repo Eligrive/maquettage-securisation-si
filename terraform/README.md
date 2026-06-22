@@ -1,13 +1,34 @@
-# Terraform — maquette UniCampus+ (volontairement vulnérable)
+# Terraform — maquette UniCampus+ (V2 segmentée)
 
-Déploiement OpenStack de la maquette : réseau, 11 VMs, security group permissif,
-floating IPs. Le **provisioning logiciel des services est désormais fait par
-Ansible** (cf. [`../ansible/`](../ansible/)) ; Terraform ne fournit plus qu'un
-**cloud-init minimal** (hostname, python3, et pour fw-legacy le bring-up réseau).
+Déploiement OpenStack de la maquette : **réseau segmenté en VLAN** (cf.
+[`../docs/V2/network.md`](../docs/V2/network.md)), VMs, floating IPs. Le
+**provisioning logiciel des services est fait par Ansible**
+(cf. [`../ansible/`](../ansible/)) ; Terraform ne fournit qu'un **cloud-init
+minimal** (hostname, python3, et pour le firewall le bring-up réseau).
 
-> ⚠️ Cette maquette est **volontairement vulnérable** (services en clair, mots de
-> passe faibles, partages ouverts…) à des fins pédagogiques d'analyse de risques.
-> À déployer uniquement sur le sous-réseau isolé du groupe.
+> ⚠️ Les **services** restent **volontairement vulnérables** (clair, mots de
+> passe faibles, partages ouverts…) à des fins pédagogiques. La V2 ajoute la
+> **segmentation réseau + un firewall central filtrant** comme remédiation.
+> À déployer uniquement sur le sous-réseau isolé du groupe (préfixe `uc-`).
+
+## Topologie segmentée
+
+7 VLAN internes, un par zone métier ; le **firewall central `uc-srv-firewall`**
+en est la **gateway** (`.254`) — tout l'inter-VLAN le traverse (filtrage). Un
+réseau de **transit** (`192.168.108.0/24`) le relie au routeur Neutron (egress +
+FIP). Le SOC (`uc-net-soc`, cf. `siem.tf`) est joint via des routes statiques.
+
+| VLAN | CIDR | Hôtes |
+|---|---|---|
+| `uc-net-user` | 192.168.101.0/24 | poste-etu `.1`, poste-prof `.2` |
+| `uc-net-recherche` | 192.168.102.0/24 | calc-recherche `.1` |
+| `uc-net-admin` | 192.168.103.0/24 | poste-dsi `.1` (bastion `.2`, V2/IAM) |
+| `uc-net-rh` | 192.168.104.0/24 | ldap `.1`, web-rh `.2`, db-rh `.3` |
+| `uc-net-mail` | 192.168.105.0/24 | srv-mail `.1` |
+| `uc-net-vpn` | 192.168.106.0/24 | vpn-legacy `.1` |
+| `uc-net-dmz` | 192.168.107.0/24 | moodle `.1` (roundcube `.2`, sso `.3`, V2/IAM) |
+| `uc-net-transit` | 192.168.108.0/24 | firewall `.1`, routeur Neutron `.254` |
+| `uc-net-soc` | 192.168.109.0/24 | SIEM `.1` (cf. `siem.tf`) |
 
 ## Structure
 
@@ -16,26 +37,26 @@ Ansible** (cf. [`../ansible/`](../ansible/)) ; Terraform ne fournit plus qu'un
 | `provider.tf` | Providers (openstack, cloudinit) + backend HTTP GitLab |
 | `variables.tf` | Variables paramétrables |
 | `data.tf` | Images, flavors, réseau externe |
-| `network.tf` | Réseau, subnet, routeur, ports Neutron à IP fixe |
-| `security.tf` | Security group `uc-sg-allow-all` |
+| `network.tf` | VLAN segmentés + transit + routeur Neutron (routes statiques) + ports |
+| `security.tf` | Security group `uc-sg-allow-all` (non attaché) |
 | `keypair.tf` | Keypair admin (clé publique du groupe) |
-| `instances.tf` | 11 instances (8 IP fixe + 3 postes DHCP), `user_data` minimal |
-| `floating_ips.tf` | 4 floating IPs (fw, vpn, mail, moodle) + outputs (FIP moodle/fw-legacy) |
-| `cloudinit.tf` | `user_data` **minimal** par VM (hostname + python3 ; bring-up réseau fw-legacy) |
+| `instances.tf` | 10 VMs métier + firewall central multi-homed, `user_data` minimal |
+| `floating_ips.tf` | FIP firewall + services (DNAT) + outputs (FIP moodle/firewall) |
+| `cloudinit.tf` | `user_data` **minimal** par VM (hostname + python3 ; route transit du firewall) |
 | `siem.tf` | Réseau SOC + VM SIEM (lot Supervision v2) |
 
 ## Provisioning
 
-Le provisioning logiciel (paquets, config des services, comptes, leurres) est
-réalisé par **Ansible** — cf. [`../ansible/README.md`](../ansible/README.md). Le
-`user_data` construit dans `cloudinit.tf` est réduit au strict nécessaire pour
-qu'Ansible puisse se connecter :
+Le provisioning logiciel (paquets, config des services, comptes, leurres,
+politique pare-feu) est réalisé par **Ansible** — cf.
+[`../ansible/README.md`](../ansible/README.md). Le `user_data` (`cloudinit.tf`)
+est réduit au strict nécessaire pour qu'Ansible se connecte :
 
 - **VMs Ubuntu** : hostname (`uc-<vm>`) + garantie d'un `python3`.
-- **fw-legacy (Debian 10)** : bring-up réseau minimal (route par défaut côté DMZ
-  + persistance dhclient), pour que sa Floating IP réponde et que les VMs internes
-  soient atteintes par rebond. La politique pare-feu complète (forwarding, NAT,
-  DNAT, alias DMZ) est jouée par le rôle Ansible `fw_legacy`.
+- **firewall central** : bring-up réseau minimal (route par défaut côté transit
+  + persistance), pour que sa Floating IP réponde et que les VMs internes soient
+  atteintes par rebond. Forwarding, NAT, DNAT et **politique inter-VLAN** (DROP
+  par défaut, conforme RBAC IAM) sont joués par le rôle Ansible `fw_central`.
 
 Pour modifier la conf d'un service, éditer son rôle sous `../ansible/roles/` et
 rejouer le playbook (idempotent) — sans recréer la VM.

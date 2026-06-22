@@ -18,19 +18,14 @@
 #   * Flavor dédié (var.siem_flavor_name) : l'indexer OpenSearch a besoin de
 #     ~4 Go de RAM ; m1.small (2 Go) ne suffit pas pour l'all-in-one.
 #
-# Compatibilité « flat » (develop actuel) vs « segmenté » (cible V2)
-# ------------------------------------------------------------------
-#   * Par défaut le SIEM est mono-rattaché à uc-net-soc, qui possède une
-#     interface routeur Neutron (sortie Internet pour l'install + Floating IP
-#     pour le dashboard). Dans la cible V2, le firewall central (192.168.108.1)
-#     route le trafic agents uc-net-* -> uc-net-soc:1514/1515.
-#   * Tant que la segmentation + le firewall central ne sont pas mergés, le
-#     réseau campus plat (192.168.107.0/24) n'a pas de route vers uc-net-soc.
-#     Pour permettre une démo de bout en bout sur develop, mettre
-#     `siem_attach_campus = true` : une 2e interface est ajoutée sur le réseau
-#     campus (192.168.107.30) pour que les agents joignent le manager
-#     directement. cloud-init force alors la route par défaut côté SOC pour
-#     ne pas casser le retour de la Floating IP.
+# Routage des agents (topologie segmentée)
+# -----------------------------------------
+#   * Le SIEM est mono-rattaché à uc-net-soc, dont la gateway est le routeur
+#     Neutron (sortie Internet pour l'install + Floating IP pour le dashboard).
+#   * Les agents Wazuh (VLAN internes uc-net-*) joignent le manager 192.168.109.1
+#     via le firewall central : firewall -> routeur Neutron -> SOC, et le retour
+#     SOC -> agents emprunte les ROUTES STATIQUES du routeur (uc-net-* -> firewall,
+#     cf. openstack_networking_router_route_v2.internal_via_fw dans network.tf).
 
 # ---------------------------------------------------------------------------
 # Variables (locales à ce lot pour faciliter le merge isolé)
@@ -46,12 +41,6 @@ variable "siem_subnet_cidr" {
   description = "CIDR du réseau de supervision dédié (SOC)."
   type        = string
   default     = "192.168.109.0/24"
-}
-
-variable "siem_attach_campus" {
-  description = "Rattache une 2e interface du SIEM au réseau campus plat (transitoire, pour démo sur develop avant la segmentation). Mettre false dès que le firewall central route uc-net-* -> uc-net-soc."
-  type        = bool
-  default     = false
 }
 
 variable "siem_expose_fip" {
@@ -80,8 +69,6 @@ locals {
   siem_soc_ip = cidrhost(var.siem_subnet_cidr, 1)
   # 192.168.109.254 : routeur Neutron du SOC (gateway par défaut du SIEM)
   siem_soc_gateway = cidrhost(var.siem_subnet_cidr, 254)
-  # 192.168.107.30 : IP campus du SIEM (cible des agents en mode flat)
-  siem_campus_ip = cidrhost(var.subnet_cidr, 30)
 }
 
 resource "openstack_networking_network_v2" "soc" {
@@ -127,24 +114,6 @@ resource "openstack_networking_port_v2" "siem_soc" {
   }
 }
 
-# Interface campus (eth1) — UNIQUEMENT si siem_attach_campus=true (mode flat
-# transitoire). Permet aux agents du réseau plat de joindre le manager sans
-# attendre la segmentation/firewall central.
-resource "openstack_networking_port_v2" "siem_campus" {
-  count = var.siem_attach_campus ? 1 : 0
-
-  name                  = "${var.resource_prefix}-port-siem-campus"
-  network_id            = openstack_networking_network_v2.campus.id
-  admin_state_up        = true
-  port_security_enabled = false
-  security_group_ids    = []
-
-  fixed_ip {
-    subnet_id  = openstack_networking_subnet_v2.campus.id
-    ip_address = local.siem_campus_ip
-  }
-}
-
 # ---------------------------------------------------------------------------
 # Instance SIEM
 # ---------------------------------------------------------------------------
@@ -157,20 +126,12 @@ resource "openstack_compute_instance_v2" "siem" {
   availability_zone = "cisco" # zone par défaut "nova" saturée (cf. instances.tf)
 
   # Provisioning minimal : Ansible installe Wazuh. cloud-init garantit juste
-  # SSH/Python et, en mode flat, fixe la route par défaut côté SOC.
+  # SSH/Python (le SOC est routé par Neutron, route par défaut native).
   user_data = local.siem_user_data
 
   # eth0 : SOC
   network {
     port = openstack_networking_port_v2.siem_soc.id
-  }
-
-  # eth1 : campus (conditionnel, mode flat)
-  dynamic "network" {
-    for_each = var.siem_attach_campus ? [openstack_networking_port_v2.siem_campus[0].id] : []
-    content {
-      port = network.value
-    }
   }
 }
 
@@ -213,17 +174,6 @@ locals {
     # on s'en assure malgré tout).
     command -v python3 >/dev/null 2>&1 || (apt-get update && apt-get install -y python3)
 
-    # Mode flat (siem_attach_campus=true) : la VM est bi-rattachée (SOC + campus).
-    # DHCP installe deux routes par défaut -> le retour de la Floating IP peut
-    # sortir par la mauvaise interface. On force la route par défaut côté SOC
-    # (identification par IP, pas par nom d'interface, pour rester robuste).
-    SOC_IF=$(ip -o -4 addr show | awk '/192\.168\.109\./ {print $2; exit}')
-    CAMPUS_IF=$(ip -o -4 addr show | awk '/192\.168\.107\./ {print $2; exit}')
-    if [ -n "$SOC_IF" ] && [ -n "$CAMPUS_IF" ]; then
-      ip route del default dev "$CAMPUS_IF" 2>/dev/null || true
-      ip route replace default via ${local.siem_soc_gateway} dev "$SOC_IF" || true
-    fi
-
     echo "uc-siem-bootstrap done"
   EOT
 }
@@ -235,11 +185,6 @@ locals {
 output "siem_internal_ip" {
   description = "IP interne du SIEM côté SOC (cible des agents en topologie segmentée)."
   value       = local.siem_soc_ip
-}
-
-output "siem_campus_ip" {
-  description = "IP du SIEM côté campus (cible des agents en mode flat), null si non rattaché."
-  value       = var.siem_attach_campus ? local.siem_campus_ip : null
 }
 
 output "siem_floating_ip" {
