@@ -235,19 +235,14 @@ des contraintes spécifiques (cf. [network.tf](../../terraform/network.tf)) :
 
 ## 7. Compatibilité « flat » (develop) ↔ « segmenté » (cible V2)
 
-La segmentation réseau et le firewall central sont développés sur d'autres
-branches et **pas encore mergés**. Le lot SIEM est conçu pour fonctionner dans
-les deux états :
-
-- **Cible segmentée** : le SIEM est seul dans `uc-net-soc`, les agents joignent
-  le manager (`192.168.109.1`) à travers le firewall central (règles du §5).
-- **Transitoire « flat » (develop)** : le réseau campus plat n'a pas de route
-  vers le SOC. Pour une démo de bout en bout, déployer avec
-  `siem_attach_campus=true` : le SIEM reçoit une 2e interface sur le réseau
-  campus (`192.168.107.30`) pour que les agents le joignent directement. La
-  route par défaut est forcée côté SOC pour préserver le retour de la Floating
-  IP. Voir les variables dans [`terraform/siem.tf`](../../terraform/siem.tf) et
-  l'inventaire [`hosts.flat.ini`](../../ansible/inventory/hosts.flat.ini).
+La segmentation réseau et le firewall central sont désormais **mergés** sur
+`develop` : le SIEM est seul dans `uc-net-soc`, et les agents (VLAN internes
+`uc-net-*`) joignent le manager (`192.168.109.1`) **à travers le firewall
+central** `uc-srv-firewall`. Le routeur Neutron porte des routes statiques
+(`uc-net-* -> firewall`) qui assurent le retour SOC -> agents (cf.
+`openstack_networking_router_route_v2.internal_via_fw` dans
+[`terraform/network.tf`](../../terraform/network.tf)). Le mode « flat »
+transitoire (`siem_attach_campus`) a été retiré.
 
 > **Point d'intégration** : quand le firewall central existera, re-router le
 > VLAN SOC derrière lui (passerelle = firewall) et appliquer

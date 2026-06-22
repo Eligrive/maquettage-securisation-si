@@ -48,10 +48,11 @@
 - name: Pointer l'interface af-packet sur l'interface de capture
   ansible.builtin.replace:
     path: /etc/suricata/suricata.yaml
-    # Premier "interface:" de la section af-packet (défaut "eth0").
-    regexp: '(\n\s*-\s*interface:\s*)\S+'
+    # Interface af-packet par défaut "eth0" (le module replace n'a pas de
+    # paramètre `count` ; on cible directement le défaut eth0, pas le mot-clé
+    # spécial `interface: default` plus bas).
+    regexp: '(\n\s*-\s*interface:\s*)eth0\b'
     replace: '\g<1>{{ suricata_capture_iface }}'
-    count: 1
   when: suricata_mode == "ids"
   notify: restart suricata
 

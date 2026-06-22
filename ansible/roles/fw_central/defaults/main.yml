@@ -19,6 +19,18 @@
 fw_transit_ip: "192.168.108.1"
 fw_transit_gw: "192.168.108.254"
 
+# VLAN internes (sources du MASQUERADE egress). NE PAS inclure le transit (108) :
+# sinon le trafic RETOUR des FIP (src = alias .108.x après un-DNAT) serait
+# ré-SNAT-é et l'accès externe aux services casserait.
+fw_internal_cidrs:
+  - "192.168.101.0/24" # user
+  - "192.168.102.0/24" # recherche
+  - "192.168.103.0/24" # admin
+  - "192.168.104.0/24" # rh
+  - "192.168.105.0/24" # mail
+  - "192.168.106.0/24" # vpn
+  - "192.168.107.0/24" # dmz
+
 # IP alias à porter sur l'interface transit (cibles des FIP, cf. floating_ips.tf).
 fw_transit_aliases:
   - "192.168.108.10" # vpn

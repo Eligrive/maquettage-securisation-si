@@ -52,39 +52,38 @@ reconfiguration sans redéploiement. Terraform reste responsable de
   dans l'agent SSH (ou via `--private-key`).
 - Accès réseau aux VMs :
   - le **SIEM** est joint par sa **Floating IP** ;
-  - les autres VMs (sans FIP) sont atteintes par **rebond SSH** via le bastion
-    (segmenté) ou la FIP de `fw-legacy` (flat) → variable `ssh_jump_host`.
+  - les autres VMs (sans FIP) sont atteintes par **rebond SSH** via la Floating
+    IP du firewall central (ou le bastion) → variable `ssh_jump_host`.
 
 ## Exécution locale
 
-Topologie déployable aujourd'hui = **flat** (campus 192.168.107.0/24, fw-legacy
-périmétrique). Le rebond SSH se fait par la Floating IP de fw-legacy.
+Topologie V2 **segmentée** (VLAN 101-108, firewall central `uc-srv-firewall`).
+Le rebond SSH se fait par la Floating IP du firewall central.
 
 ```bash
 cd ansible/
 
 # 1. Générer l'inventaire avec la vraie Floating IP du SIEM (depuis Terraform)
 TF_DIR=../terraform scripts/gen-inventory.sh \
-    inventory/hosts.flat.ini inventory/hosts.generated.ini
+    inventory/hosts.ini inventory/hosts.generated.ini
 
-# 2. Déploiement COMPLET : base maquette v1 puis supervision (site.yml)
+# 2. Déploiement COMPLET : maquette segmentée puis supervision (site.yml)
 ansible-playbook -i inventory/hosts.generated.ini site.yml \
-    -e ssh_jump_host="ubuntu@<FIP_fw-legacy>" \
+    -e ssh_jump_host="ubuntu@<FIP_firewall>" \
     -e moodle_wwwroot="http://<FIP_moodle>"
-#   (FIP via `terraform -chdir=../terraform output -raw fw_legacy_floating_ip`
-#    et `... moodle_floating_ip`. En flat, déployer le SIEM avec
-#    siem_attach_campus=true pour qu'il écoute côté campus.)
+#   (FIP via `terraform -chdir=../terraform output -raw firewall_floating_ip`
+#    et `... moodle_floating_ip`.)
 ```
 
 Jouer un seul lot, ou un seul service (tags) :
 
 ```bash
 # Lots
-ansible-playbook -i inventory/hosts.generated.ini provision.yml   ...   # base v1
+ansible-playbook -i inventory/hosts.generated.ini provision.yml   ...   # maquette
 ansible-playbook -i inventory/hosts.generated.ini supervision.yml ...   # SIEM/IDS
 
-# Services de la base v1
-ansible-playbook ... site.yml --tags fw       # pare-feu fw-legacy
+# Services de la maquette
+ansible-playbook ... site.yml --tags fw       # firewall central (fw_central)
 ansible-playbook ... site.yml --tags ldap     # (idem : mail|db-rh|web-rh|moodle|calc|vpn|postes)
 
 # Supervision

@@ -142,14 +142,20 @@
   notify: save iptables
 
 # --- SNAT egress : masque les VLAN internes derrière l'IP transit -----------
+# Scopé à la SOURCE (VLAN internes) : le retour des FIP (src = alias transit)
+# ne doit PAS être masqueradé, sinon le client externe ne reconnaît plus la FIP.
 - name: MASQUERADE egress (VLAN internes -> transit -> Internet)
   ansible.builtin.iptables:
     table: nat
     chain: POSTROUTING
+    source: "{{ item }}"
     out_interface: "{{ fw_transit_if }}"
     jump: MASQUERADE
     action: append
-    comment: "uc snat egress"
+    comment: "uc snat egress {{ item }}"
+  loop: "{{ fw_internal_cidrs }}"
+  loop_control:
+    label: "{{ item }}"
   notify: save iptables
 
 # --- Persistance -------------------------------------------------------------
