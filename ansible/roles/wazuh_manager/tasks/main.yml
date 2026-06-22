@@ -1,0 +1,115 @@
+---
+# ============================================================================
+#  Rôle wazuh_manager — déploiement Wazuh all-in-one
+# ============================================================================
+#
+# Remplace un éventuel "script init" : idempotent (réexécutable), piloté par
+# l'inventaire, et capable de reconfigurer le manager sans réinstaller.
+
+- name: Vérifier que l'OS est de la famille Debian/Ubuntu
+  ansible.builtin.assert:
+    that: ansible_facts['os_family'] == "Debian"
+    fail_msg: "Le rôle wazuh_manager cible Ubuntu/Debian (image cloud de la maquette)."
+
+- name: Installer les prérequis (curl, tar)
+  ansible.builtin.apt:
+    name:
+      - curl
+      - tar
+    state: present
+    update_cache: true
+  retries: 3
+  delay: 10
+  register: _apt_prereq
+  until: _apt_prereq is succeeded
+
+- name: Détecter une installation Wazuh existante
+  ansible.builtin.stat:
+    path: /var/ossec/bin/wazuh-control
+  register: _wazuh_installed
+
+# --- Installation AIO (uniquement si absente) -------------------------------
+- name: Déployer Wazuh all-in-one (manager + indexer + dashboard)
+  when: not _wazuh_installed.stat.exists
+  block:
+    - name: Télécharger l'installeur assisté Wazuh
+      ansible.builtin.get_url:
+        url: "{{ wazuh_aio_installer_url }}"
+        dest: "{{ wazuh_aio_workdir }}/wazuh-install.sh"
+        mode: "0700"
+
+    - name: Lancer l'installation all-in-one (long ~10-15 min)
+      ansible.builtin.command:
+        cmd: "bash {{ wazuh_aio_workdir }}/wazuh-install.sh -a {{ '-i' if wazuh_aio_ignore_hw_check else '' }}"
+        chdir: "{{ wazuh_aio_workdir }}"
+        creates: /var/ossec/bin/wazuh-control
+      async: "{{ wazuh_aio_install_timeout }}"
+      poll: 30
+      register: _aio_install
+
+    - name: Marquer l'installation comme fraîchement effectuée
+      ansible.builtin.set_fact:
+        wazuh_freshly_installed: true
+
+# --- Récupération des identifiants générés ----------------------------------
+- name: Récupérer les identifiants du dashboard
+  when: wazuh_fetch_credentials
+  block:
+    - name: Extraire wazuh-passwords.txt de l'archive d'installation
+      ansible.builtin.command:
+        cmd: >-
+          tar -xf {{ wazuh_aio_workdir }}/wazuh-install-files.tar
+          -C {{ wazuh_aio_workdir }}
+          wazuh-install-files/wazuh-passwords.txt
+        creates: "{{ wazuh_aio_workdir }}/wazuh-install-files/wazuh-passwords.txt"
+      register: _extract_creds
+      failed_when: false
+
+    - name: Vérifier la présence du fichier d'identifiants
+      ansible.builtin.stat:
+        path: "{{ wazuh_aio_workdir }}/wazuh-install-files/wazuh-passwords.txt"
+      register: _creds_file
+
+    - name: Rapatrier les identifiants sur le control node
+      ansible.builtin.fetch:
+        src: "{{ wazuh_aio_workdir }}/wazuh-install-files/wazuh-passwords.txt"
+        dest: "{{ wazuh_credentials_local_dir }}/{{ inventory_hostname }}-wazuh-passwords.txt"
+        flat: true
+      when: _creds_file.stat.exists
+
+# --- Entrée syslog distante (équipements sans agent) ------------------------
+- name: Activer l'entrée syslog distante du manager
+  when: wazuh_manager_enable_syslog_input
+  ansible.builtin.blockinfile:
+    path: /var/ossec/etc/ossec.conf
+    # Marqueur en commentaire XML (un commentaire shell "#" casserait le parsing).
+    marker: "<!-- {mark} ANSIBLE MANAGED: entrée syslog distante -->"
+    insertbefore: "</ossec_config>"
+    block: |
+      <remote>
+        <connection>syslog</connection>
+        <port>{{ wazuh_manager_syslog_port }}</port>
+        <protocol>{{ wazuh_manager_syslog_protocol }}</protocol>
+      {% for net in wazuh_manager_syslog_allowed_ips %}
+        <allowed-ips>{{ net }}</allowed-ips>
+      {% endfor %}
+      </remote>
+  notify: restart wazuh-manager
+
+# --- Services -----------------------------------------------------------------
+- name: S'assurer que les services Wazuh sont démarrés et activés
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  loop:
+    - wazuh-indexer
+    - wazuh-manager
+    - wazuh-dashboard
+
+- name: Récapitulatif d'accès au dashboard
+  ansible.builtin.debug:
+    msg: >-
+      Wazuh dashboard : https://{{ ansible_host }} (port 443) — utilisateur 'admin'.
+      Mot de passe dans {{ wazuh_credentials_local_dir }}/{{ inventory_hostname }}-wazuh-passwords.txt
+      (clé "indexer_password" / utilisateur admin du dashboard).

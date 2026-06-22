@@ -1,0 +1,34 @@
+---
+# ============================================================================
+#  Rôle wazuh_manager — Wazuh all-in-one (manager + indexer + dashboard)
+# ============================================================================
+
+# Installeur assisté officiel Wazuh (déploie l'AIO en une passe : indexer
+# OpenSearch + manager + dashboard + certificats auto-signés).
+wazuh_aio_installer_url: "https://packages.wazuh.com/{{ wazuh_version }}/wazuh-install.sh"
+
+# Répertoire de travail de l'installeur (y dépose wazuh-install-files.tar).
+wazuh_aio_workdir: "/root"
+
+# -i / --ignore-check : bypass le contrôle matériel (l'AIO exige 4 Go RAM ;
+# utile si le flavor est juste à la limite). La VM SIEM est dimensionnée pour,
+# mais on garde le bypass pour ne pas bloquer un déploiement de démo.
+wazuh_aio_ignore_hw_check: true
+
+# Récupération des identifiants générés (admin dashboard, kibanaserver, etc.)
+# sur le control node, pour pouvoir se connecter au dashboard.
+wazuh_fetch_credentials: true
+wazuh_credentials_local_dir: "{{ playbook_dir }}/.wazuh-credentials"
+
+# Entrée syslog distante (port 514) pour les équipements qui NE peuvent PAS
+# faire tourner d'agent (appliances, équipements réseau). Les hôtes Linux de
+# la maquette utilisent l'agent ; le syslog reste le filet pour le reste.
+wazuh_manager_enable_syslog_input: true
+wazuh_manager_syslog_port: 514
+wazuh_manager_syslog_protocol: "udp"
+# Réseaux internes autorisés à pousser du syslog (toute la plage privée du SI).
+wazuh_manager_syslog_allowed_ips:
+  - "192.168.0.0/16"
+
+# Délai max (s) accordé à l'installeur AIO (téléchargement + install OpenSearch).
+wazuh_aio_install_timeout: 1800

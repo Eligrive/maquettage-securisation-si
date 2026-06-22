@@ -1,0 +1,8 @@
+---
+# Bastion Teleport : point de passage unique des sessions admin. L'audit log
+# Teleport (qui/quand/quelle session SSH) est l'événement le plus précieux pour
+# le SOC. Teleport journalise sur stderr -> journald (couvert par défaut) ;
+# on ajoute le fichier d'audit s'il est activé.
+wazuh_agent_logfiles:
+  - format: "json"
+    location: "/var/lib/teleport/log/events.log"

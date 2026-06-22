@@ -1,0 +1,27 @@
+---
+# ============================================================================
+#  Variables communes — lot Supervision (Wazuh + Suricata)
+# ============================================================================
+
+# --- Connexion SSH ----------------------------------------------------------
+# Image cloud Ubuntu : utilisateur par défaut « ubuntu ». La clé privée
+# correspondant à var.ssh_public_key (Terraform) doit être chargée dans
+# l'agent SSH du control node (ou ANSIBLE_PRIVATE_KEY_FILE).
+ansible_user: ubuntu
+
+# Rebond SSH pour atteindre les VMs sans Floating IP.
+#   - Topologie segmentée : bastion (uc-srv-bastion).
+#   - Topologie flat       : FIP de fw-legacy.
+# Format attendu : "ubuntu@<FIP_du_jump>". Vide = connexion directe (ex: le
+# SIEM joint par sa propre FIP). Surchargé par la CI ou par -e ssh_jump_host=...
+ssh_jump_host: ""
+
+# --- Version Wazuh ----------------------------------------------------------
+# Branche majeure utilisée pour le dépôt APT (agents) et l'installeur assisté
+# (manager all-in-one).
+wazuh_version: "4.9"
+
+# Adresse que les AGENTS utilisent pour joindre le manager (events 1514,
+# enrôlement 1515). En segmenté = IP SOC du SIEM ; en flat = IP campus.
+# Peut être surchargée par l'inventaire (cf. hosts.flat.ini) ou la CI.
+wazuh_manager_address: "192.168.109.1"

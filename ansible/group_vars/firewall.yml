@@ -1,0 +1,29 @@
+---
+# ============================================================================
+#  Variables du groupe [firewall] — sonde IDS/IPS Suricata + agent Wazuh
+# ============================================================================
+
+# Interface(s) que Suricata écoute. Le firewall central est inline entre tous
+# les VLAN : on écoute l'interface qui voit le trafic inter-zones. À adapter
+# selon le nom réel sur la VM (ip -o link). Laisser "auto" pour détecter
+# l'interface portant la route par défaut.
+suricata_interface: "auto"
+
+# Mode de fonctionnement :
+#   ids = détection passive (af-packet, ne bloque rien) — défaut, sûr.
+#   ips = prévention inline via NFQUEUE (peut bloquer du trafic légitime si
+#         une règle est trop large ; à activer après tuning).
+suricata_mode: "ids"
+
+# Jeu de règles téléchargé par suricata-update (Emerging Threats Open).
+suricata_ruleset_enabled: true
+
+# L'agent Wazuh du firewall lit les alertes Suricata (eve.json) en plus des
+# logs système, et les remonte au manager pour corrélation SIEM.
+wazuh_agent_logfiles:
+  - format: "json"
+    location: "/var/log/suricata/eve.json"
+    label: "Suricata IDS/IPS (eve.json)"
+  - format: "syslog"
+    location: "/var/log/ufw.log"
+    label: "Firewall log (si ufw présent)"

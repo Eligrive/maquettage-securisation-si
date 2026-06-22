@@ -1,0 +1,11 @@
+---
+# Dépendances Ansible Galaxy du lot Supervision.
+#
+# Les rôles n'utilisent que des modules d'ansible-core (apt, apt_repository,
+# get_url, command, systemd, blockinfile, lineinfile, replace, stat, fetch,
+# iptables, assert, set_fact, wait_for_connection). Aucune collection externe
+# n'est strictement requise.
+#
+# Installation (si besoin de figer une version) :
+#   ansible-galaxy collection install -r requirements.yml
+collections: []

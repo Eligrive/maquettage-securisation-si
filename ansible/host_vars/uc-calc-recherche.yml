@@ -1,0 +1,10 @@
+---
+# Serveur recherche : NFS + Samba + PostgreSQL + Jupyter. Surveillance des accès
+# partages et de la base recherche.
+wazuh_agent_logfiles:
+  - format: "syslog"
+    location: "/var/log/samba/log.smbd"
+  - format: "postgresql_log"
+    location: "/var/log/postgresql/postgresql-16-main.log"
+  - format: "syslog"
+    location: "/var/log/syslog"
