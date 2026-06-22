@@ -1,6 +1,26 @@
 ---
-# Moodle : Apache (accès/erreurs) + MariaDB local. Détection web (scans, injection,
-# brute-force login) et erreurs applicatives.
+# ============================================================================
+#  uc-srv-moodle — LMS Moodle (Apache + PHP + MariaDB)
+# ============================================================================
+
+# --- Provisioning maquette (rôle srv_moodle + comptes + leurres) ------------
+# Comptes nominatifs (mêmes mots de passe que dans Moodle/LDAP/mail -> latéralisation
+# SSH par réutilisation). 'dsi' admin partout.
+maquette_accounts:
+  - { name: jdupont, password: unicampus2024 }
+  - { name: lmartin, password: Printemps2024 }
+  - { name: dsi, password: admin2024, sudo_nopasswd: true }
+
+# Documents pédagogiques (leurres) exposés dans Moodle.
+loot_assets_dir: srv-moodle
+loot_dests:
+  - { path: /opt/loot, owner: root, group: root }
+  - { path: /var/www/html/moodle/uc-docs, owner: www-data, group: www-data }
+
+# moodle_wwwroot : laissé au défaut du rôle (IP interne) ; surchargé en CI/local
+# par -e moodle_wwwroot=http://<FIP_moodle> (cf. output terraform moodle_floating_ip).
+
+# --- Supervision (agent Wazuh) ----------------------------------------------
 wazuh_agent_logfiles:
   - format: "apache"
     location: "/var/log/apache2/access.log"

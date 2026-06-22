@@ -1,0 +1,47 @@
+---
+# ============================================================================
+#  Rôle fw_legacy — pare-feu périmétrique inline (ex terraform/scripts/fw-legacy.sh)
+# ============================================================================
+#
+# fw-legacy a deux interfaces : campus (192.168.107.2, gateway DHCP des VMs) et
+# DMZ (10.0.0.2 + alias .3-.6, face au routeur Neutron 10.0.0.1). cloud-init ne
+# pose QUE la route par défaut (bring-up minimal) ; ce rôle pose toute la
+# politique : forwarding, alias DMZ, NAT/DNAT, helpers PPTP, persistance.
+#
+# Politique iptables ACCEPT partout (firewall obsolète qui laisse tout passer,
+# cf. énoncé) : on ne fait que les translations NAT strictement nécessaires.
+#
+# NB : ces IP reflètent terraform/network.tf (topologie DMZ + campus). Surchargées
+# si la topologie évolue.
+
+fw_campus_ip: "192.168.107.2"
+fw_dmz_primary_ip: "10.0.0.2"
+fw_dmz_router_ip: "10.0.0.1"
+fw_campus_cidr: "192.168.107.0/24"
+
+# Alias IP portés par l'interface DMZ : une IP par service exposé (héberge les FIP).
+fw_dmz_aliases:
+  - "10.0.0.3"
+  - "10.0.0.4"
+  - "10.0.0.5"
+  - "10.0.0.6"
+
+# Règle(s) résiduelle(s) (vestige d'une ancienne conf, cf. archi §6.1).
+fw_residual_tcp_ports:
+  - 8080
+
+# DNAT ingress : chaque alias DMZ -> IP campus du service cible.
+#   proto: tcp|gre ; dport/to_port omis pour GRE.
+fw_dnat_rules:
+  - { name: "vpn PPTP 1723", dmz_ip: "10.0.0.3", proto: tcp, dport: 1723, to: "192.168.107.3", to_port: 1723 }
+  - { name: "vpn GRE 47", dmz_ip: "10.0.0.3", proto: gre, to: "192.168.107.3" }
+  - { name: "mail SMTP 25", dmz_ip: "10.0.0.4", proto: tcp, dport: 25, to: "192.168.107.10", to_port: 25 }
+  - { name: "mail IMAP 143", dmz_ip: "10.0.0.4", proto: tcp, dport: 143, to: "192.168.107.10", to_port: 143 }
+  - { name: "mail POP3 110", dmz_ip: "10.0.0.4", proto: tcp, dport: 110, to: "192.168.107.10", to_port: 110 }
+  - { name: "moodle HTTP 80", dmz_ip: "10.0.0.5", proto: tcp, dport: 80, to: "192.168.107.12", to_port: 80 }
+  - { name: "web-rh HTTP 80", dmz_ip: "10.0.0.6", proto: tcp, dport: 80, to: "192.168.107.14", to_port: 80 }
+
+# Helpers conntrack PPTP (sans nf_nat_pptp, le DNAT GRE ne fonctionne pas).
+fw_pptp_modules:
+  - nf_conntrack_pptp
+  - nf_nat_pptp

@@ -1,0 +1,10 @@
+---
+# ============================================================================
+#  Rôle srv_ldap — annuaire OpenLDAP (ex scripts/srv-ldap.sh)
+# ============================================================================
+# Bind anonyme autorisé, pas de TLS, mot de passe admin faible (vuln §6.1).
+
+ldap_domain: "unicampus.local"
+ldap_org: "UniCampus"
+ldap_base_dn: "dc=unicampus,dc=local"
+ldap_admin_password: "unicampus2024"

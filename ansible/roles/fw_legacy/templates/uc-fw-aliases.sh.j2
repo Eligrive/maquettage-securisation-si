@@ -1,0 +1,9 @@
+#!/bin/sh
+# {{ ansible_managed }}
+# Réajoute les alias IP DMZ de fw-legacy après chaque boot : le port Neutron
+# réserve ces fixed_ip mais le DHCP ne sert que la primaire ({{ fw_dmz_primary_ip }}).
+DMZ_IF=$(ip -o -4 addr show 2>/dev/null | awk '/{{ fw_dmz_primary_ip | replace('.', '\\.') }}\// {print $2; exit}')
+[ -z "$DMZ_IF" ] && exit 0
+for ip in {{ fw_dmz_aliases | join(' ') }}; do
+  ip addr add "$ip/24" dev "$DMZ_IF" 2>/dev/null || true
+done

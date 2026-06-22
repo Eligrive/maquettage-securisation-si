@@ -1,0 +1,62 @@
+---
+# ============================================================================
+#  uc-poste-dsi — poste DSI / admin (rôle poste)
+# ============================================================================
+# sudo NOPASSWD, documents administratifs sensibles, identifiants admin en clair
+# (anti-pattern volontaire §3.4/§6.3).
+
+poste_packages:
+  - openssh-client
+  - nfs-common
+  - smbclient
+
+# Comptes : 'ubuntu' existant doté de sudo NOPASSWD ; compte 'dsi' réutilisé
+# partout, admin local.
+maquette_accounts:
+  - { name: ubuntu, create_user: false, sudo_nopasswd: true }
+  - { name: dsi, password: admin2024, sudo_nopasswd: true }
+
+# Documents administratifs / DSI (leurres) pour les comptes ubuntu et dsi.
+loot_assets_dir: poste-dsi
+loot_dests:
+  - { path: /opt/loot, owner: root, group: root }
+  - { path: /home/ubuntu/Documents, owner: ubuntu, group: ubuntu }
+  - { path: /home/dsi/Documents, owner: dsi, group: dsi }
+
+# Emplacement prévu pour une éventuelle clé d'admin (cf. NOTE ci-dessous).
+poste_dirs:
+  - { path: /home/ubuntu/.ssh, owner: ubuntu, group: ubuntu, mode: "0700" }
+
+poste_files:
+  # Notes admin DSI (anti-pattern volontaire) : compte d'urgence en clair.
+  - dest: /home/dsi/credentials-admin.txt
+    owner: dsi
+    group: dsi
+    content: |
+      === Identifiants administration UniCampus+ (DSI) ===
+
+      Compte d'admin "dsi" (sudo NOPASSWD sur tous les serveurs) :
+        dsi / admin2024
+
+      VPN d'acces distant (compte partage, cf. mail diffuse) :
+        campus / unicampus2024
+
+      Comptes base RH (uc-db-rh, 192.168.107.20:3306) :
+        root / root                  (administrateur, GRANT ALL ON *.*)
+        rhapp / rh2024               (compte applicatif, GRANT sur rh.*)
+
+      Annuaire LDAP (uc-srv-ldap, 192.168.107.11) :
+        cn=admin,dc=unicampus,dc=local / unicampus2024
+  # La chaîne d'attaque principale de SO2 passe par la réutilisation du compte
+  # 'dsi' (cf. docs/scenarios-attaque.md), pas par vol de clé SSH. La clé reste
+  # documentée pour rester fidèle à la justif §6.3.
+  - dest: /home/ubuntu/NOTE-cle-admin.txt
+    owner: ubuntu
+    group: ubuntu
+    content: |
+      Optionnel : si vous souhaitez aussi démontrer le chemin "vol de clé SSH" plutôt
+      que la latéralisation par mot de passe, déposez la clé privée correspondant
+      à la keypair du groupe ici :
+        /home/ubuntu/.ssh/id_rsa   (chmod 600)
+      La chaîne d'attaque principale de SO2 passe désormais par la réutilisation
+      du compte 'dsi' (cf. docs/scenarios-attaque.md).

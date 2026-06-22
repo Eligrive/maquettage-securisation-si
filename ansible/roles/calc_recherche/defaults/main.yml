@@ -1,0 +1,22 @@
+---
+# ============================================================================
+#  Rôle calc_recherche — calcul recherche (ex scripts/calc-recherche.sh)
+# ============================================================================
+# NFS export monde + no_root_squash, Samba guest, Jupyter sans token (0.0.0.0:8888),
+# PostgreSQL local. Héberge les données de recherche (leurres). Vulns §4.2.
+
+calc_share_path: "/srv/recherche"
+
+# PostgreSQL : base résultats expérimentaux.
+calc_pg_db: "lrid_results"
+calc_pg_user: "recherche"
+calc_pg_pass: "recherche2024"
+
+# Samba : partage "partenaires" authentifié (sert SO4).
+calc_samba_valid_users: "pa1, sleblanc, jdupont"
+
+# Mots de passe Samba (comptes Unix créés par maquette_accounts au préalable).
+calc_smb_users:
+  - { user: "pa1", password: "partenaire2024" }
+  - { user: "sleblanc", password: "recherche2024" }
+  - { user: "jdupont", password: "unicampus2024" }

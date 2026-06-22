@@ -108,16 +108,21 @@ ansible_syntax:
     - ansible-playbook --syntax-check -i inventory/hosts.ini site.yml
 
 # ---------------------------------------------------------
-# PROVISION Ansible : déploie Wazuh (manager + agents) et Suricata APRÈS le
-# terraform_apply. Strictement MANUEL.
+# PROVISION Ansible : déploie TOUTE la maquette APRÈS le terraform_apply via
+# site.yml = provision.yml (base v1 : pare-feu, services, comptes, leurres,
+# postes) PUIS supervision.yml (SIEM Wazuh + Suricata). Strictement MANUEL.
+#
+# Topologie FLAT (déployable aujourd'hui) : inventory/hosts.flat.ini, rebond SSH
+# via la Floating IP de fw-legacy. NB : en flat, le SIEM doit écouter côté campus
+# (192.168.107.30) -> déployer avec TF_VAR_siem_attach_campus=true (cf. siem.tf).
 #
 # Variables CI/CD requises (en plus de celles d'OpenStack du terraform_apply) :
 #   - ANSIBLE_SSH_PRIVATE_KEY_B64 : clé privée SSH (correspondant à
 #       TF_VAR_ssh_public_key) encodée en base64, masquée.
 #       Génération :  base64 -w0 ~/.ssh/id_ed25519
-#   - SSH_JUMP_HOST : hôte de rebond pour atteindre les VMs sans Floating IP,
-#       au format "ubuntu@<FIP_bastion>" (segmenté) ou "ubuntu@<FIP_fw-legacy>"
-#       (flat). Laisser vide si le control node a un accès réseau direct.
+#   - SSH_JUMP_HOST (optionnel) : rebond pour atteindre les VMs sans Floating IP.
+#       Par défaut dérivé de l'output Terraform fw_legacy_floating_ip
+#       (ubuntu@<FIP_fw-legacy>). Surcharger si besoin (ex. bastion en segmenté).
 # ---------------------------------------------------------
 ansible_provision:
   stage: provision
@@ -129,9 +134,11 @@ ansible_provision:
   before_script:
     - apk add --no-cache ansible openssh-client bash coreutils
   script:
-    # 1. Récupérer les outputs Terraform (Floating IP du SIEM) via le state GitLab
+    # 1. Récupérer les outputs Terraform (Floating IPs) via le state GitLab
     - cd "${TF_ROOT}"
     - *tf_init_backend
+    - export MOODLE_FIP="$(terraform output -raw moodle_floating_ip)"
+    - export FW_FIP="$(terraform output -raw fw_legacy_floating_ip)"
     # 2. Préparer la clé SSH (jump + cibles) et désactiver le host-key checking
     - mkdir -p ~/.ssh && chmod 700 ~/.ssh
     - echo "$ANSIBLE_SSH_PRIVATE_KEY_B64" | base64 -d > ~/.ssh/id_ansible
@@ -139,12 +146,16 @@ ansible_provision:
     - printf 'Host *\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n' > ~/.ssh/config
     - eval "$(ssh-agent -s)"
     - ssh-add ~/.ssh/id_ansible
-    # 3. Générer l'inventaire avec la vraie Floating IP
+    # 3. Générer l'inventaire flat avec la vraie Floating IP du SIEM
     - cd "${CI_PROJECT_DIR}"
-    - TF_DIR="${TF_ROOT}" bash ansible/scripts/gen-inventory.sh ansible/inventory/hosts.ini ansible/inventory/hosts.generated.ini
-    # 4. Déployer
+    - TF_DIR="${TF_ROOT}" bash ansible/scripts/gen-inventory.sh ansible/inventory/hosts.flat.ini ansible/inventory/hosts.generated.ini
+    # 4. Déployer la maquette complète (rebond = fw-legacy ; wwwroot = FIP moodle)
     - cd ansible
-    - ansible-playbook -i inventory/hosts.generated.ini site.yml -e "ssh_jump_host=${SSH_JUMP_HOST}" --private-key ~/.ssh/id_ansible
+    - JUMP="${SSH_JUMP_HOST:-ubuntu@${FW_FIP}}"
+    - ansible-playbook -i inventory/hosts.generated.ini site.yml
+      -e "ssh_jump_host=${JUMP}"
+      -e "moodle_wwwroot=http://${MOODLE_FIP}"
+      --private-key ~/.ssh/id_ansible
   rules:
     - if: '$CI_COMMIT_BRANCH == "develop" || $CI_COMMIT_BRANCH == "main"'
       when: manual

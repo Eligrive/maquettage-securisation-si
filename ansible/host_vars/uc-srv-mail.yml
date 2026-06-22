@@ -1,6 +1,28 @@
 ---
-# Messagerie (Postfix + Dovecot). Détection brute-force IMAP/SMTP, relais,
-# tentatives d'authentification. Wazuh décode nativement le format mail.log.
+# ============================================================================
+#  uc-srv-mail — messagerie Postfix + Dovecot
+# ============================================================================
+
+# --- Provisioning maquette (rôle srv_mail + comptes + leurres) --------------
+# Comptes de messagerie = comptes Unix locaux, mots de passe identiques aux
+# autres services (dérive "pas de SSO -> réutilisation des credentials").
+maquette_accounts:
+  - { name: jdupont, password: unicampus2024 }
+  - { name: lmartin, password: Printemps2024 }
+  - { name: sleblanc, password: recherche2024 }
+  - { name: cfournier, password: finance2024 }
+  - { name: dsi, password: admin2024, sudo_nopasswd: true }
+
+# Leurre PDF : email DSI contenant les identifiants VPN, déposé dans la boite
+# de jdupont (en plus du staging /opt/loot).
+loot_assets_dir: srv-mail
+loot_dests:
+  - { path: /opt/loot, owner: root, group: root }
+  - { path: /home/jdupont, owner: jdupont, group: jdupont }
+
+# --- Supervision (agent Wazuh) ----------------------------------------------
+# Détection brute-force IMAP/SMTP, relais, tentatives d'auth. Wazuh décode
+# nativement le format mail.log.
 wazuh_agent_logfiles:
   - format: "syslog"
     location: "/var/log/mail.log"

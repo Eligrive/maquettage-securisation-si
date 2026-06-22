@@ -1,0 +1,139 @@
+---
+# ============================================================================
+#  Rôle srv_moodle — Apache/PHP/MariaDB + Moodle (HTTP clair)
+# ============================================================================
+
+- name: Installer Apache, MariaDB, git et PHP
+  ansible.builtin.apt:
+    name:
+      - apache2
+      - mariadb-server
+      - git
+      - php
+      - php-cli
+      - php-curl
+      - php-gd
+      - php-intl
+      - php-mbstring
+      - php-mysqli
+      - php-xml
+      - php-zip
+      - php-soap
+      - php-xmlrpc
+      - libapache2-mod-php
+    state: present
+    update_cache: true
+  retries: 3
+  delay: 10
+  register: _apt_moodle
+  until: _apt_moodle is succeeded
+
+# --- MariaDB locale (bind 127.0.0.1) + base Moodle --------------------------
+- name: MariaDB — bind sur la loopback
+  ansible.builtin.lineinfile:
+    path: /etc/mysql/mariadb.conf.d/50-server.cnf
+    regexp: '^\s*bind-address\s*='
+    line: "bind-address = 127.0.0.1"
+  notify: restart mariadb
+
+- name: Activer et démarrer MariaDB
+  ansible.builtin.systemd:
+    name: mariadb
+    state: started
+    enabled: true
+
+- name: Appliquer la conf MariaDB avant la création de base
+  ansible.builtin.meta: flush_handlers
+
+- name: Créer la base et l'utilisateur Moodle (idempotent)
+  ansible.builtin.shell: |
+    mysql <<SQL
+    CREATE DATABASE IF NOT EXISTS {{ moodle_db_name }} DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+    CREATE USER IF NOT EXISTS '{{ moodle_db_user }}'@'localhost' IDENTIFIED BY '{{ moodle_db_pass }}';
+    GRANT ALL PRIVILEGES ON {{ moodle_db_name }}.* TO '{{ moodle_db_user }}'@'localhost';
+    FLUSH PRIVILEGES;
+    SQL
+  changed_when: false
+
+# --- PHP : Moodle exige max_input_vars >= 5000 ------------------------------
+- name: Localiser les php.ini
+  ansible.builtin.find:
+    paths: /etc/php
+    patterns: php.ini
+    recurse: true
+  register: _php_inis
+
+- name: Forcer max_input_vars = 5000
+  ansible.builtin.replace:
+    path: "{{ item.path }}"
+    regexp: '^[;\s]*max_input_vars\s*=.*'
+    replace: "max_input_vars = 5000"
+  loop: "{{ _php_inis.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  notify: restart apache2
+
+# --- Récupération de Moodle (clone uniquement si absent) --------------------
+- name: Cloner Moodle ({{ moodle_branch }})
+  ansible.builtin.git:
+    repo: "https://github.com/moodle/moodle.git"
+    dest: /var/www/html/moodle
+    version: "{{ moodle_branch }}"
+    depth: 1
+    update: false
+
+- name: Créer le moodledata et fixer les droits (permissif, vuln volontaire)
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /var/www/html/moodle, mode: "0755" }
+    - { path: /var/moodledata, mode: "0777" }
+
+- name: S'assurer que le code Moodle appartient à www-data
+  ansible.builtin.file:
+    path: /var/www/html/moodle
+    owner: www-data
+    group: www-data
+    recurse: true
+
+# --- Installation CLI non interactive (idempotente via config.php) ----------
+- name: Installer Moodle (CLI)
+  ansible.builtin.command:
+    cmd: >-
+      sudo -u www-data php /var/www/html/moodle/admin/cli/install.php
+      --non-interactive --agree-license
+      --wwwroot="{{ moodle_wwwroot }}" --dataroot=/var/moodledata
+      --dbtype=mariadb --dbhost=127.0.0.1 --dbname={{ moodle_db_name }}
+      --dbuser={{ moodle_db_user }} --dbpass={{ moodle_db_pass }}
+      --fullname="UniCampus+ Moodle" --shortname="UC"
+      --adminuser=admin --adminpass="{{ moodle_admin_pass }}"
+      --adminemail=admin@unicampus.local
+    creates: /var/www/html/moodle/config.php
+  register: _moodle_install
+  failed_when: false
+
+# --- Apache : Moodle à la racine, HTTP en clair -----------------------------
+- name: Configurer le vhost Apache (Moodle à la racine)
+  ansible.builtin.copy:
+    src: 000-default.conf
+    dest: /etc/apache2/sites-available/000-default.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart apache2
+
+- name: Activer le module rewrite
+  ansible.builtin.command:
+    cmd: a2enmod rewrite
+    creates: /etc/apache2/mods-enabled/rewrite.load
+  notify: restart apache2
+
+- name: Activer et démarrer Apache
+  ansible.builtin.systemd:
+    name: apache2
+    state: started
+    enabled: true

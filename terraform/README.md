@@ -1,7 +1,9 @@
 # Terraform — maquette UniCampus+ (volontairement vulnérable)
 
 Déploiement OpenStack de la maquette : réseau, 11 VMs, security group permissif,
-floating IPs, et **provisioning des services via cloud-init**.
+floating IPs. Le **provisioning logiciel des services est désormais fait par
+Ansible** (cf. [`../ansible/`](../ansible/)) ; Terraform ne fournit plus qu'un
+**cloud-init minimal** (hostname, python3, et pour fw-legacy le bring-up réseau).
 
 > ⚠️ Cette maquette est **volontairement vulnérable** (services en clair, mots de
 > passe faibles, partages ouverts…) à des fins pédagogiques d'analyse de risques.
@@ -17,22 +19,26 @@ floating IPs, et **provisioning des services via cloud-init**.
 | `network.tf` | Réseau, subnet, routeur, ports Neutron à IP fixe |
 | `security.tf` | Security group `uc-sg-allow-all` |
 | `keypair.tf` | Keypair admin (clé publique du groupe) |
-| `instances.tf` | 11 instances (8 IP fixe + 3 postes DHCP), `user_data` cloud-init |
-| `floating_ips.tf` | 4 floating IPs (fw, vpn, mail, moodle) |
-| `cloudinit.tf` | Assemble par VM : assets (`/opt/loot`) + `scripts/<vm>.sh` |
-| `scripts/<vm>.sh` | Script de configuration isolé, un par VM |
+| `instances.tf` | 11 instances (8 IP fixe + 3 postes DHCP), `user_data` minimal |
+| `floating_ips.tf` | 4 floating IPs (fw, vpn, mail, moodle) + outputs (FIP moodle/fw-legacy) |
+| `cloudinit.tf` | `user_data` **minimal** par VM (hostname + python3 ; bring-up réseau fw-legacy) |
+| `siem.tf` | Réseau SOC + VM SIEM (lot Supervision v2) |
 
-## Provisioning (cloud-init)
+## Provisioning
 
-Chaque instance reçoit un `user_data` multipart construit dans `cloudinit.tf` :
+Le provisioning logiciel (paquets, config des services, comptes, leurres) est
+réalisé par **Ansible** — cf. [`../ansible/README.md`](../ansible/README.md). Le
+`user_data` construit dans `cloudinit.tf` est réduit au strict nécessaire pour
+qu'Ansible puisse se connecter :
 
-1. **Assets** — les PDF leurres de `../assets/<vm>/` sont déposés dans `/opt/loot`
-   sur la VM (cloud-config `write_files`, base64, sans dépendance réseau).
-2. **Configuration** — le script `scripts/<vm>.sh` installe et configure les
-   services (cf. `docs/architecture-technique.md` §4–§6).
+- **VMs Ubuntu** : hostname (`uc-<vm>`) + garantie d'un `python3`.
+- **fw-legacy (Debian 10)** : bring-up réseau minimal (route par défaut côté DMZ
+  + persistance dhclient), pour que sa Floating IP réponde et que les VMs internes
+  soient atteintes par rebond. La politique pare-feu complète (forwarding, NAT,
+  DNAT, alias DMZ) est jouée par le rôle Ansible `fw_legacy`.
 
-Pour modifier la conf d'un service, éditer son `scripts/<vm>.sh` : aucun autre
-fichier Terraform à toucher.
+Pour modifier la conf d'un service, éditer son rôle sous `../ansible/roles/` et
+rejouer le playbook (idempotent) — sans recréer la VM.
 
 ## Variables CI/CD à définir dans GitLab
 

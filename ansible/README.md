@@ -1,12 +1,39 @@
-# Lot Supervision — Provisioning Ansible (SIEM Wazuh + IDS/IPS Suricata)
+# Provisioning Ansible — maquette UniCampus+
 
-Ce dossier provisionne la **supervision** de la maquette V2 :
+Ansible est l'outil de **déploiement de la modélisation** (construction de la
+maquette pédagogique volontairement vulnérable), **pas** l'outil d'administration
+du SI modélisé. Ce dossier couvre **deux lots** :
 
-| Composant | Hôte | Rôle Ansible |
-|---|---|---|
-| Wazuh all-in-one (manager + indexer + dashboard) | `uc-srv-siem` (VLAN SOC) | `wazuh_manager` |
-| Sonde réseau Suricata (IDS/IPS inline) | firewall central | `suricata_ids` |
-| Agents Wazuh (HIDS + collecte de logs) | tous les serveurs & postes | `wazuh_agent` |
+1. **Base maquette v1** (`provision.yml`) — provisioning applicatif des éléments
+   V1, migré des anciens scripts cloud-init (`terraform/scripts/*.sh`) :
+
+   | Composant | Hôte | Rôle Ansible |
+   |---|---|---|
+   | Pare-feu périmétrique (iptables NAT/DNAT) | `uc-fw-legacy` | `fw_legacy` |
+   | Annuaire OpenLDAP | `uc-srv-ldap` | `srv_ldap` |
+   | Messagerie Postfix/Dovecot | `uc-srv-mail` | `srv_mail` |
+   | LMS Moodle (Apache/PHP/MariaDB) | `uc-srv-moodle` | `srv_moodle` |
+   | Portail RH (Apache/PHP, SQLi) | `uc-web-rh` | `web_rh` |
+   | Base RH MariaDB | `uc-db-rh` | `db_rh` |
+   | Calcul recherche (NFS/Samba/PostgreSQL/Jupyter) | `uc-calc-recherche` | `calc_recherche` |
+   | VPN PPTP | `uc-vpn-legacy` | `vpn_legacy` |
+   | Postes étudiant / prof / DSI | `uc-poste-*` | `poste` |
+   | Comptes cred-reuse + leurres PDF (transverses) | (selon hôte) | `common`, `maquette_accounts`, `loot` |
+
+2. **Supervision v2** (`supervision.yml`) — SIEM Wazuh + IDS/IPS Suricata :
+
+   | Composant | Hôte | Rôle Ansible |
+   |---|---|---|
+   | Wazuh all-in-one (manager + indexer + dashboard) | `uc-srv-siem` (VLAN SOC) | `wazuh_manager` |
+   | Sonde réseau Suricata (IDS/IPS inline) | firewall central | `suricata_ids` |
+   | Agents Wazuh (HIDS + collecte de logs) | tous les serveurs & postes | `wazuh_agent` |
+
+`site.yml` enchaîne les deux : **`provision.yml` puis `supervision.yml`** (la
+maquette doit exister avant qu'on y installe les agents).
+
+> Rappel : les **postes BYOD** sont *déployés* par Ansible (outil de construction
+> de la maquette) mais restent *modélisés* comme « non administrés » dans le SI
+> simulé — aucun agent Wazuh ne s'y exécute (cf. groupe `[postes_byod]`).
 
 ## Pourquoi Ansible plutôt que les scripts cloud-init ?
 
@@ -30,30 +57,38 @@ reconfiguration sans redéploiement. Terraform reste responsable de
 
 ## Exécution locale
 
+Topologie déployable aujourd'hui = **flat** (campus 192.168.107.0/24, fw-legacy
+périmétrique). Le rebond SSH se fait par la Floating IP de fw-legacy.
+
 ```bash
 cd ansible/
 
 # 1. Générer l'inventaire avec la vraie Floating IP du SIEM (depuis Terraform)
 TF_DIR=../terraform scripts/gen-inventory.sh \
-    inventory/hosts.ini inventory/hosts.generated.ini
+    inventory/hosts.flat.ini inventory/hosts.generated.ini
 
-# 2. Lancer le déploiement complet (topologie segmentée)
+# 2. Déploiement COMPLET : base maquette v1 puis supervision (site.yml)
 ansible-playbook -i inventory/hosts.generated.ini site.yml \
-    -e ssh_jump_host="ubuntu@<FIP_bastion>"
-
-# Variante topologie « flat » (develop, avant segmentation) :
-#   - déployer le SIEM avec siem_attach_campus=true (terraform)
-#   - utiliser l'inventaire flat et le rebond via fw-legacy
-ansible-playbook -i inventory/hosts.flat.ini site.yml \
-    -e ssh_jump_host="ubuntu@<FIP_fw-legacy>"
+    -e ssh_jump_host="ubuntu@<FIP_fw-legacy>" \
+    -e moodle_wwwroot="http://<FIP_moodle>"
+#   (FIP via `terraform -chdir=../terraform output -raw fw_legacy_floating_ip`
+#    et `... moodle_floating_ip`. En flat, déployer le SIEM avec
+#    siem_attach_campus=true pour qu'il écoute côté campus.)
 ```
 
-Jouer une partie seulement :
+Jouer un seul lot, ou un seul service (tags) :
 
 ```bash
-ansible-playbook -i inventory/hosts.generated.ini site.yml --tags siem
-ansible-playbook -i inventory/hosts.generated.ini site.yml --tags ids
-ansible-playbook -i inventory/hosts.generated.ini site.yml --tags agents
+# Lots
+ansible-playbook -i inventory/hosts.generated.ini provision.yml   ...   # base v1
+ansible-playbook -i inventory/hosts.generated.ini supervision.yml ...   # SIEM/IDS
+
+# Services de la base v1
+ansible-playbook ... site.yml --tags fw       # pare-feu fw-legacy
+ansible-playbook ... site.yml --tags ldap     # (idem : mail|db-rh|web-rh|moodle|calc|vpn|postes)
+
+# Supervision
+ansible-playbook ... site.yml --tags siem     # (idem : ids|agents)
 ```
 
 ## Accès au dashboard

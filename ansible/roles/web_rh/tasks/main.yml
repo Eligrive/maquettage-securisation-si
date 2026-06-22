@@ -1,0 +1,37 @@
+---
+# ============================================================================
+#  Rôle web_rh — portail RH Apache/PHP (SQLi volontaire)
+# ============================================================================
+
+- name: Installer Apache + PHP (mysqli)
+  ansible.builtin.apt:
+    name:
+      - apache2
+      - php
+      - php-mysqli
+      - libapache2-mod-php
+    state: present
+    update_cache: true
+  retries: 3
+  delay: 10
+  register: _apt_webrh
+  until: _apt_webrh is succeeded
+
+- name: Déposer le portail RH (index.php — SQLi par conception)
+  ansible.builtin.template:
+    src: index.php.j2
+    dest: /var/www/html/index.php
+    owner: www-data
+    group: www-data
+    mode: "0644"
+
+- name: Retirer la page Apache par défaut
+  ansible.builtin.file:
+    path: /var/www/html/index.html
+    state: absent
+
+- name: Activer et démarrer Apache
+  ansible.builtin.systemd:
+    name: apache2
+    state: started
+    enabled: true

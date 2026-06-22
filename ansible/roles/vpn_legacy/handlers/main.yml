@@ -1,0 +1,6 @@
+---
+- name: restart pptpd
+  ansible.builtin.systemd:
+    name: pptpd
+    state: restarted
+    enabled: true

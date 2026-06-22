@@ -1,6 +1,22 @@
 ---
-# Portail RH (Apache + PHP). Cible privilégiée (SO3 : injection SQL, accès non
-# authentifié). On surveille finement les accès web.
+# ============================================================================
+#  uc-web-rh — portail web RH (Apache + PHP)
+# ============================================================================
+
+# --- Provisioning maquette (rôle web_rh + comptes + leurres) ----------------
+# Comptes nominatifs (cred reuse) : VP Finances + admin DSI.
+maquette_accounts:
+  - { name: cfournier, password: finance2024 }
+  - { name: dsi, password: admin2024, sudo_nopasswd: true }
+
+# Documents RH (leurres) exposés.
+loot_assets_dir: web-rh
+loot_dests:
+  - { path: /opt/loot, owner: root, group: root }
+  - { path: /var/www/html/rh-docs, owner: www-data, group: www-data }
+
+# --- Supervision (agent Wazuh) ----------------------------------------------
+# Cible privilégiée (SO3 : injection SQL, accès non authentifié).
 wazuh_agent_logfiles:
   - format: "apache"
     location: "/var/log/apache2/access.log"

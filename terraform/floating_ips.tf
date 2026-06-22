@@ -31,3 +31,26 @@ resource "openstack_networking_floatingip_associate_v2" "public" {
   # refuse d'attacher un FIP avec ExternalGatewayForFloatingIPNotFound.
   depends_on = [openstack_networking_router_interface_v2.dmz]
 }
+
+# ---------------------------------------------------------------------------
+# Outputs — consommés par le provisioning Ansible (cf. ansible/).
+# ---------------------------------------------------------------------------
+# Les services exposés (mail/moodle/web-rh/vpn) sont atteints depuis l'extérieur
+# par leur Floating IP. srv_moodle en a besoin : Moodle redirige toutes les
+# requêtes vers son wwwroot, qui doit donc être l'URL publique (FIP) et non l'IP
+# interne. Passé à Ansible via -e moodle_wwwroot=http://<FIP> (cf. .gitlab-ci.yml).
+
+output "public_floating_ips" {
+  description = "Floating IPs des services exposés via fw-legacy (clé = service)."
+  value       = { for k, v in openstack_networking_floatingip_v2.public : k => v.address }
+}
+
+output "moodle_floating_ip" {
+  description = "Floating IP de srv-moodle (wwwroot public du LMS)."
+  value       = openstack_networking_floatingip_v2.public["srv-moodle"].address
+}
+
+output "fw_legacy_floating_ip" {
+  description = "Floating IP de fw-legacy (rebond SSH/ProxyJump des VMs internes en topologie flat)."
+  value       = openstack_networking_floatingip_v2.public["fw-legacy"].address
+}

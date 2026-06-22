@@ -1,0 +1,35 @@
+---
+# ============================================================================
+#  uc-poste-prof — poste enseignant-chercheur (rôle poste)
+# ============================================================================
+# Identifiants stockés en clair (mauvaise pratique volontaire) donnant accès à
+# Moodle et à la recherche.
+
+poste_packages:
+  - nfs-common
+  - smbclient
+poste_packages_optional:
+  - firefox # snap sur Ubuntu récent -> best-effort
+
+# Compte Unix nominatif (cred reuse).
+maquette_accounts:
+  - { name: jdupont, password: unicampus2024 }
+
+poste_files:
+  - dest: /home/ubuntu/identifiants.txt
+    owner: ubuntu
+    group: ubuntu
+    mode: "0644"
+    content: |
+      === Identifiants UniCampus+ (poste enseignant) ===
+      Tous les services utilisent le MEME mot de passe (pas de SSO -> dérive
+      "un mot de passe par utilisateur, valable partout").
+
+      Moodle      : http://192.168.107.12     login jdupont / unicampus2024
+      Messagerie  : 192.168.107.10 (IMAP/25)  login jdupont / unicampus2024
+      LDAP        : ldap://192.168.107.11     uid=jdupont,ou=people,... / unicampus2024
+      Recherche   : //192.168.107.15/recherche (Samba, guest)
+      Jupyter     : http://192.168.107.15:8888 (sans mot de passe)
+      SSH labo    : ssh jdupont@192.168.107.15                          / unicampus2024
+      SSH mail    : ssh jdupont@192.168.107.10                          / unicampus2024
+      SSH moodle  : ssh jdupont@192.168.107.12                          / unicampus2024

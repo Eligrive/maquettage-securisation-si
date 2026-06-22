@@ -1,0 +1,102 @@
+---
+# ============================================================================
+#  Rôle srv_mail — Postfix + Dovecot (clair, relais ouvert) + leurre mail DSI
+# ============================================================================
+
+- name: Pré-seed debconf pour Postfix
+  ansible.builtin.debconf:
+    name: postfix
+    question: "{{ item.q }}"
+    vtype: "{{ item.t }}"
+    value: "{{ item.v }}"
+  loop:
+    - { q: "postfix/mailname", t: "string", v: "{{ mail_domain }}" }
+    - { q: "postfix/main_mailer_type", t: "select", v: "Internet Site" }
+  loop_control:
+    label: "{{ item.q }}"
+
+- name: Installer Postfix, Dovecot (IMAP/POP3) et mailutils
+  ansible.builtin.apt:
+    name:
+      - postfix
+      - dovecot-imapd
+      - dovecot-pop3d
+      - mailutils
+    state: present
+    update_cache: true
+  retries: 3
+  delay: 10
+  register: _apt_mail
+  until: _apt_mail is succeeded
+
+# --- Postfix : écoute partout, relais ouvert, aucun TLS, Maildir -------------
+# Bloc d'overrides en fin de main.cf (la dernière définition d'une clé gagne).
+- name: Surcharger la configuration Postfix (clair + relais ouvert)
+  ansible.builtin.blockinfile:
+    path: /etc/postfix/main.cf
+    marker: "# {mark} ANSIBLE MANAGED: maquette vulnérable (srv_mail)"
+    block: |
+      inet_interfaces = all
+      inet_protocols = ipv4
+      mydestination = {{ mail_domain }}, localhost.localdomain, localhost
+      mynetworks = 0.0.0.0/0
+      smtpd_tls_security_level = none
+      home_mailbox = Maildir/
+  notify: restart postfix
+
+# --- Dovecot : plaintext autorisé, pas de TLS, Maildir ----------------------
+- name: Dovecot — autoriser l'auth plaintext
+  ansible.builtin.lineinfile:
+    path: /etc/dovecot/conf.d/10-auth.conf
+    regexp: '^#?\s*disable_plaintext_auth\s*='
+    line: "disable_plaintext_auth = no"
+  notify: restart dovecot
+
+- name: Dovecot — mécanismes d'auth plain login
+  ansible.builtin.lineinfile:
+    path: /etc/dovecot/conf.d/10-auth.conf
+    regexp: '^#?\s*auth_mechanisms\s*='
+    line: "auth_mechanisms = plain login"
+  notify: restart dovecot
+
+- name: Dovecot — Maildir
+  ansible.builtin.lineinfile:
+    path: /etc/dovecot/conf.d/10-mail.conf
+    regexp: '^#?\s*mail_location\s*='
+    line: "mail_location = maildir:~/Maildir"
+  notify: restart dovecot
+
+- name: Dovecot — désactiver TLS
+  ansible.builtin.lineinfile:
+    path: /etc/dovecot/conf.d/10-ssl.conf
+    regexp: '^#?\s*ssl\s*='
+    line: "ssl = no"
+  notify: restart dovecot
+
+# --- Leurre : mail informel DSI partagé en clair (compte admin réutilisé) ----
+# Modélise une dérive : la DSI distribue par mail un compte d'admin "de secours".
+- name: Créer la Maildir du compte leurre
+  ansible.builtin.file:
+    path: "/home/{{ mail_decoy_user }}/Maildir/cur"
+    state: directory
+    owner: "{{ mail_decoy_user }}"
+    group: "{{ mail_decoy_user }}"
+    mode: "0700"
+
+- name: Déposer le mail-leurre (compte d'urgence DSI en clair)
+  ansible.builtin.template:
+    src: dsi-mail.j2
+    # Nom de fichier Maildir (suffixe :2,S) — généré sur la cible Linux.
+    dest: "/home/{{ mail_decoy_user }}/Maildir/cur/1700000000.uc.mail:2,S"
+    owner: "{{ mail_decoy_user }}"
+    group: "{{ mail_decoy_user }}"
+    mode: "0644"
+
+- name: Activer et démarrer Postfix et Dovecot
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  loop:
+    - postfix
+    - dovecot

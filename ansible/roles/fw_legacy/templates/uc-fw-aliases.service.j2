@@ -1,0 +1,12 @@
+[Unit]
+Description=uc-fw-legacy DMZ IP aliases
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/uc-fw-aliases
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,65 @@
+---
+# ============================================================================
+#  Rôle db_rh — base RH MariaDB (ex scripts/db-rh.sh)
+# ============================================================================
+# Écoute sur 0.0.0.0, root distant, comptes hashés SHA1, mots de passe faibles
+# (vulns volontaires §4.3/§6.2).
+
+- name: Installer mariadb-server
+  ansible.builtin.apt:
+    name: mariadb-server
+    state: present
+    update_cache: true
+  retries: 3
+  delay: 10
+  register: _apt_mariadb
+  until: _apt_mariadb is succeeded
+
+- name: Écoute sur toutes les interfaces (vuln volontaire)
+  ansible.builtin.lineinfile:
+    path: /etc/mysql/mariadb.conf.d/50-server.cnf
+    regexp: '^\s*bind-address\s*='
+    line: "bind-address = 0.0.0.0"
+  notify: restart mariadb
+
+- name: Activer et démarrer MariaDB
+  ansible.builtin.systemd:
+    name: mariadb
+    state: started
+    enabled: true
+
+- name: Appliquer la conf (bind-address) avant les opérations SQL
+  ansible.builtin.meta: flush_handlers
+
+# --- Schéma + comptes (idempotent via IF NOT EXISTS) -------------------------
+- name: Déposer le script de schéma + comptes
+  ansible.builtin.copy:
+    src: schema.sql
+    dest: /tmp/uc-db-rh-schema.sql
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Appliquer le schéma et les comptes
+  ansible.builtin.shell: "mysql < /tmp/uc-db-rh-schema.sql"
+  changed_when: false
+
+# --- Données (seed uniquement si la table est vide -> idempotent) ------------
+- name: Déposer le jeu de données employés
+  ansible.builtin.copy:
+    src: seed-employes.sql
+    dest: /tmp/uc-db-rh-seed.sql
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Compter les employés existants
+  ansible.builtin.command:
+    cmd: mysql -N -B -e "SELECT COUNT(*) FROM rh.employes"
+  register: _emp_count
+  changed_when: false
+  failed_when: false
+
+- name: Peupler la table employés (si vide)
+  ansible.builtin.shell: "mysql rh < /tmp/uc-db-rh-seed.sql"
+  when: (_emp_count.stdout | default('0') | trim | int) == 0

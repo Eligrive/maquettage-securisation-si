@@ -1,0 +1,36 @@
+---
+# ============================================================================
+#  Rôle common — bootstrap commun aux VMs de la maquette v1
+# ============================================================================
+#
+# Remplace la partie "SSH password auth" de l'ancien terraform/scripts/_bootstrap.sh.
+# L'attente de fw-legacy (forwarding Internet avant apt) est désormais assurée par
+# l'ORDRE du playbook (le rôle fw_legacy est joué en premier, cf. provision.yml) et
+# par les retries des tâches apt des rôles services.
+#
+# Vulnérabilité VOLONTAIRE (sujet de la maquette) : on réactive l'authentification
+# SSH par mot de passe, désactivée par défaut sur les images cloud Ubuntu. C'est ce
+# qui rend démontrable la latéralisation par réutilisation de credentials (absence
+# de SSO -> un mot de passe par utilisateur, valable partout).
+
+- name: Vérifier que l'OS est de la famille Debian/Ubuntu
+  ansible.builtin.assert:
+    that: ansible_facts['os_family'] == "Debian"
+    fail_msg: "Le rôle common cible Ubuntu/Debian."
+
+- name: Activer l'authentification SSH par mot de passe (drop-in)
+  ansible.builtin.copy:
+    src: 99-uc-passwords.conf
+    dest: /etc/ssh/sshd_config.d/99-uc-passwords.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart ssh
+
+# Filet de sécurité si une distrib n'honore pas sshd_config.d.
+- name: Forcer PasswordAuthentication dans le sshd_config principal
+  ansible.builtin.replace:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?\s*PasswordAuthentication\s+.*$'
+    replace: "PasswordAuthentication yes"
+  notify: restart ssh

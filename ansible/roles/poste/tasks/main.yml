@@ -1,0 +1,57 @@
+---
+# ============================================================================
+#  Rôle poste — provisioning des postes clients (data-driven)
+# ============================================================================
+
+- name: Installer les paquets requis du poste
+  ansible.builtin.apt:
+    name: "{{ poste_packages }}"
+    state: present
+    update_cache: true
+  retries: 3
+  delay: 10
+  register: _apt_poste
+  until: _apt_poste is succeeded
+  when: poste_packages | length > 0
+
+# Paquets best-effort (ex. firefox = snap sur Ubuntu récent -> peut échouer).
+- name: Installer les paquets optionnels du poste (best-effort)
+  ansible.builtin.apt:
+    name: "{{ poste_packages_optional }}"
+    state: present
+    update_cache: true
+  failed_when: false
+  when: poste_packages_optional | length > 0
+
+- name: Créer les répertoires du poste
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner | default('root') }}"
+    group: "{{ item.group | default(item.owner | default('root')) }}"
+    mode: "{{ item.mode | default('0755') }}"
+  loop: "{{ poste_dirs }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Garantir les répertoires parents des fichiers déposés
+  ansible.builtin.file:
+    path: "{{ item.dest | dirname }}"
+    state: directory
+    owner: "{{ item.owner | default('root') }}"
+    group: "{{ item.group | default(item.owner | default('root')) }}"
+    mode: "0755"
+  loop: "{{ poste_files }}"
+  loop_control:
+    label: "{{ item.dest | dirname }}"
+
+- name: Déposer les fichiers du poste (notes, identifiants, README)
+  ansible.builtin.copy:
+    dest: "{{ item.dest }}"
+    content: "{{ item.content }}"
+    owner: "{{ item.owner | default('root') }}"
+    group: "{{ item.group | default(item.owner | default('root')) }}"
+    mode: "{{ item.mode | default('0644') }}"
+  loop: "{{ poste_files }}"
+  loop_control:
+    label: "{{ item.dest }}"

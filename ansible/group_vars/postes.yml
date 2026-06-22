@@ -1,0 +1,16 @@
+---
+# ============================================================================
+#  Variables du groupe [postes] — rebond SSH via le bastion/firewall
+# ============================================================================
+#
+# Les postes clients n'ont pas de Floating IP : on les atteint par ProxyJump à
+# travers ssh_jump_host (cf. group_vars/all.yml), comme les hôtes [agents]. Ils
+# ne sont PAS membres de [agents] (aucun agent Wazuh ne s'y exécute), d'où ce
+# fichier dédié qui réplique les options de connexion.
+#
+# Rappel : en topologie flat les postes sont en DHCP (IP variable) ; renseigner
+# leur ansible_host dans l'inventaire avant de jouer le rôle poste.
+
+ansible_ssh_common_args: >-
+  {% if ssh_jump_host | length > 0 %}-o ProxyJump={{ ssh_jump_host }}{% endif %}
+  -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no
