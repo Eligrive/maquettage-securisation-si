@@ -1,0 +1,175 @@
+---
+# ============================================================================
+#  Rôle fw_central — politique pare-feu segmentée (idempotente)
+# ============================================================================
+
+- name: Vérifier que l'OS est de la famille Debian/Ubuntu
+  ansible.builtin.assert:
+    that: ansible_facts['os_family'] == "Debian"
+    fail_msg: "Le rôle fw_central cible Ubuntu/Debian."
+
+# --- Détection de l'interface transit (porte {{ fw_transit_ip }}) ------------
+- name: Détecter l'interface de transit
+  ansible.builtin.shell: >-
+    ip -o -4 addr show | awk '/{{ fw_transit_ip | replace('.', '\\.') }}\// {print $2; exit}'
+  register: _fw_transit_if
+  changed_when: false
+
+- name: Vérifier que l'interface transit est identifiée
+  ansible.builtin.assert:
+    that: _fw_transit_if.stdout | length > 0
+    fail_msg: "Interface transit non détectée (cloud-init a-t-il démarré le réseau ?)."
+
+- name: Mémoriser le nom de l'interface transit
+  ansible.builtin.set_fact:
+    fw_transit_if: "{{ _fw_transit_if.stdout }}"
+
+# --- IP forwarding -----------------------------------------------------------
+- name: Activer le forwarding IPv4 et désactiver les redirects (sysctl.d)
+  ansible.builtin.copy:
+    src: 99-uc-forward.conf
+    dest: /etc/sysctl.d/99-uc-forward.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload sysctl forward
+
+# --- Alias IP de transit (cibles des FIP) -----------------------------------
+- name: Déployer le script d'alias transit
+  ansible.builtin.template:
+    src: uc-fw-aliases.sh.j2
+    dest: /usr/local/sbin/uc-fw-aliases
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Déployer l'unité systemd des alias transit
+  ansible.builtin.template:
+    src: uc-fw-aliases.service.j2
+    dest: /etc/systemd/system/uc-fw-aliases.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload systemd
+
+- name: Activer et (re)lancer le service d'alias transit
+  ansible.builtin.systemd:
+    name: uc-fw-aliases.service
+    enabled: true
+    state: started
+    daemon_reload: true
+
+# --- Helpers conntrack PPTP --------------------------------------------------
+- name: Charger les modules conntrack PPTP au boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/uc-pptp-nat.conf
+    content: "{{ fw_pptp_modules | join('\n') }}\n"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Charger les modules conntrack PPTP immédiatement
+  ansible.builtin.command:
+    cmd: "modprobe {{ item }}"
+  loop: "{{ fw_pptp_modules }}"
+  changed_when: false
+  failed_when: false
+
+# --- Politiques par défaut (moindre privilège sur FORWARD) -------------------
+- name: Politique INPUT/OUTPUT ACCEPT
+  ansible.builtin.iptables:
+    chain: "{{ item }}"
+    policy: ACCEPT
+  loop:
+    - INPUT
+    - OUTPUT
+
+- name: Politique FORWARD DROP (cloisonnement inter-VLAN)
+  ansible.builtin.iptables:
+    chain: FORWARD
+    policy: DROP
+
+# --- FORWARD : connexions établies + egress Internet ------------------------
+- name: FORWARD - autoriser ESTABLISHED,RELATED
+  ansible.builtin.iptables:
+    chain: FORWARD
+    ctstate: [ESTABLISHED, RELATED]
+    jump: ACCEPT
+    action: insert
+    rule_num: 1
+  notify: save iptables
+
+- name: FORWARD - autoriser l'egress Internet (sortie via transit)
+  ansible.builtin.iptables:
+    chain: FORWARD
+    out_interface: "{{ fw_transit_if }}"
+    jump: ACCEPT
+    action: append
+    comment: "uc egress internet"
+  notify: save iptables
+
+# --- FORWARD : autorisations explicites (RBAC / services exposés) ------------
+- name: FORWARD - règles d'autorisation (DROP par défaut sinon)
+  ansible.builtin.iptables:
+    chain: FORWARD
+    source: "{{ item.src | default(omit) }}"
+    destination: "{{ item.dst | default(omit) }}"
+    protocol: "{{ item.proto }}"
+    destination_ports: "{{ item.dports.split(',') if item.dports is defined else omit }}"
+    jump: ACCEPT
+    action: append
+    comment: "uc fwd {{ item.name }}"
+  loop: "{{ fw_forward_rules }}"
+  loop_control:
+    label: "{{ item.name }}"
+  notify: save iptables
+
+# --- DNAT ingress (FIP -> service interne) ----------------------------------
+- name: DNAT ingress vers les services internes
+  ansible.builtin.iptables:
+    table: nat
+    chain: PREROUTING
+    destination: "{{ item.in_ip }}"
+    protocol: "{{ item.proto }}"
+    destination_port: "{{ item.dport | default(omit) }}"
+    jump: DNAT
+    to_destination: "{{ item.to }}{{ (':' ~ item.to_port) if item.to_port is defined else '' }}"
+    action: append
+    comment: "uc dnat {{ item.name }}"
+  loop: "{{ fw_dnat_rules }}"
+  loop_control:
+    label: "{{ item.name }}"
+  notify: save iptables
+
+# --- SNAT egress : masque les VLAN internes derrière l'IP transit -----------
+- name: MASQUERADE egress (VLAN internes -> transit -> Internet)
+  ansible.builtin.iptables:
+    table: nat
+    chain: POSTROUTING
+    out_interface: "{{ fw_transit_if }}"
+    jump: MASQUERADE
+    action: append
+    comment: "uc snat egress"
+  notify: save iptables
+
+# --- Persistance -------------------------------------------------------------
+- name: Préconfigurer iptables-persistent (autosave)
+  ansible.builtin.debconf:
+    name: iptables-persistent
+    question: "iptables-persistent/{{ item }}"
+    vtype: boolean
+    value: "true"
+  loop:
+    - autosave_v4
+    - autosave_v6
+
+- name: Installer iptables-persistent
+  ansible.builtin.apt:
+    name: iptables-persistent
+    state: present
+    update_cache: true
+  retries: 3
+  delay: 10
+  register: _apt_iptp
+  until: _apt_iptp is succeeded
+  notify: save iptables

@@ -1,0 +1,9 @@
+#!/bin/sh
+# {{ ansible_managed }}
+# Réajoute les IP alias de transit (cibles des FIP) après chaque boot : le port
+# Neutron réserve ces fixed_ip mais le DHCP ne sert que la primaire ({{ fw_transit_ip }}).
+TRANSIT_IF=$(ip -o -4 addr show 2>/dev/null | awk '/{{ fw_transit_ip | replace('.', '\\.') }}\// {print $2; exit}')
+[ -z "$TRANSIT_IF" ] && exit 0
+for ip in {{ fw_transit_aliases | join(' ') }}; do
+  ip addr add "$ip/24" dev "$TRANSIT_IF" 2>/dev/null || true
+done

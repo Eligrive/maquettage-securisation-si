@@ -112,17 +112,17 @@ ansible_syntax:
 # site.yml = provision.yml (base v1 : pare-feu, services, comptes, leurres,
 # postes) PUIS supervision.yml (SIEM Wazuh + Suricata). Strictement MANUEL.
 #
-# Topologie FLAT (déployable aujourd'hui) : inventory/hosts.flat.ini, rebond SSH
-# via la Floating IP de fw-legacy. NB : en flat, le SIEM doit écouter côté campus
-# (192.168.107.30) -> déployer avec TF_VAR_siem_attach_campus=true (cf. siem.tf).
+# Topologie V2 SEGMENTÉE : inventory/hosts.ini, rebond SSH via la Floating IP du
+# firewall central (gateway de tous les VLAN). Le firewall est provisionné EN
+# PREMIER (forwarding/NAT) pour que les autres VMs aient accès Internet.
 #
 # Variables CI/CD requises (en plus de celles d'OpenStack du terraform_apply) :
 #   - ANSIBLE_SSH_PRIVATE_KEY_B64 : clé privée SSH (correspondant à
 #       TF_VAR_ssh_public_key) encodée en base64, masquée.
 #       Génération :  base64 -w0 ~/.ssh/id_ed25519
 #   - SSH_JUMP_HOST (optionnel) : rebond pour atteindre les VMs sans Floating IP.
-#       Par défaut dérivé de l'output Terraform fw_legacy_floating_ip
-#       (ubuntu@<FIP_fw-legacy>). Surcharger si besoin (ex. bastion en segmenté).
+#       Par défaut dérivé de l'output Terraform firewall_floating_ip
+#       (ubuntu@<FIP_firewall>). Surcharger si besoin (ex. bastion).
 # ---------------------------------------------------------
 ansible_provision:
   stage: provision
@@ -138,7 +138,7 @@ ansible_provision:
     - cd "${TF_ROOT}"
     - *tf_init_backend
     - export MOODLE_FIP="$(terraform output -raw moodle_floating_ip)"
-    - export FW_FIP="$(terraform output -raw fw_legacy_floating_ip)"
+    - export FW_FIP="$(terraform output -raw firewall_floating_ip)"
     # 2. Préparer la clé SSH (jump + cibles) et désactiver le host-key checking
     - mkdir -p ~/.ssh && chmod 700 ~/.ssh
     - echo "$ANSIBLE_SSH_PRIVATE_KEY_B64" | base64 -d > ~/.ssh/id_ansible
@@ -146,10 +146,10 @@ ansible_provision:
     - printf 'Host *\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n' > ~/.ssh/config
     - eval "$(ssh-agent -s)"
     - ssh-add ~/.ssh/id_ansible
-    # 3. Générer l'inventaire flat avec la vraie Floating IP du SIEM
+    # 3. Générer l'inventaire segmenté avec la vraie Floating IP du SIEM
     - cd "${CI_PROJECT_DIR}"
-    - TF_DIR="${TF_ROOT}" bash ansible/scripts/gen-inventory.sh ansible/inventory/hosts.flat.ini ansible/inventory/hosts.generated.ini
-    # 4. Déployer la maquette complète (rebond = fw-legacy ; wwwroot = FIP moodle)
+    - TF_DIR="${TF_ROOT}" bash ansible/scripts/gen-inventory.sh ansible/inventory/hosts.ini ansible/inventory/hosts.generated.ini
+    # 4. Déployer la maquette complète (rebond = firewall ; wwwroot = FIP moodle)
     - cd ansible
     - JUMP="${SSH_JUMP_HOST:-ubuntu@${FW_FIP}}"
     - ansible-playbook -i inventory/hosts.generated.ini site.yml

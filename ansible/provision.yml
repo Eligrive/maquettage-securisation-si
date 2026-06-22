@@ -3,20 +3,22 @@
 #  Playbook — base maquette v1 (migration cloud-init -> Ansible)
 # ============================================================================
 #
-# Déploie le provisioning logiciel des éléments v1, autrefois en scripts cloud-init
-# (terraform/scripts/*.sh). Idempotent et rejouable. Conçu pour la topologie FLAT
-# (réseau campus 192.168.107.0/24, fw-legacy périmétrique) : utiliser
-# inventory/hosts.flat.ini et ssh_jump_host = FIP de fw-legacy.
+# Déploie le provisioning logiciel des services, autrefois en scripts cloud-init
+# (terraform/scripts/*.sh). Idempotent et rejouable. Topologie V2 SEGMENTÉE
+# (VLAN 101-108, firewall central uc-srv-firewall) : utiliser inventory/hosts.ini
+# (défaut) et ssh_jump_host = FIP du firewall central.
 #
-# ORDRE IMPORTANT : le pare-feu fw-legacy est provisionné EN PREMIER. Il active
-# le forwarding + NAT, sans quoi les autres VMs (gateway = fw-legacy) n'ont pas
+# ORDRE IMPORTANT : le firewall central est provisionné EN PREMIER. Il active le
+# forwarding + NAT (gateway de tous les VLAN), sans quoi les autres VMs n'ont pas
 # d'accès Internet et leurs apt-get échouent.
 #
 # Exécution :
 #   cd ansible/
-#   ansible-playbook -i inventory/hosts.flat.ini provision.yml \
-#       -e ssh_jump_host="ubuntu@<FIP_fw-legacy>" \
+#   ansible-playbook provision.yml \
+#       -e ssh_jump_host="ubuntu@<FIP_firewall>" \
 #       -e moodle_wwwroot="http://<FIP_moodle>"
+#
+# (Topologie FLAT V1 historique : inventory/hosts.flat.ini + rôle fw_legacy.)
 #
 # Tags : fw | ldap | mail | db-rh | web-rh | moodle | calc | vpn | postes.
 
@@ -30,13 +32,13 @@
         timeout: 600
       tags: [always]
 
-# --- 1. Pare-feu périmétrique EN PREMIER (active l'egress des autres VMs) -----
-- name: Pare-feu périmétrique (fw-legacy)
-  hosts: fw_legacy
+# --- 1. Pare-feu central EN PREMIER (gateway de tous les VLAN, active l'egress) -
+- name: Pare-feu central segmenté (uc-srv-firewall)
+  hosts: firewall
   gather_facts: true
   roles:
     - { role: common, tags: [common, fw] }
-    - { role: fw_legacy, tags: [fw] }
+    - { role: fw_central, tags: [fw] }
 
 # --- 2. Services applicatifs --------------------------------------------------
 - name: Annuaire LDAP

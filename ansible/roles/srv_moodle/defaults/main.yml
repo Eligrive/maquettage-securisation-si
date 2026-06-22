@@ -15,4 +15,4 @@ moodle_admin_pass: "Admin2024" # volontairement faible
 # (Floating IP), sinon les clients externes sont renvoyés vers l'IP interne
 # inaccessible. Surchargé en CI/local par -e moodle_wwwroot=http://<FIP_moodle>
 # (cf. output terraform moodle_floating_ip). Fallback = IP interne (debug local).
-moodle_wwwroot: "http://192.168.107.12"
+moodle_wwwroot: "http://192.168.107.1"

@@ -7,8 +7,8 @@
 # PPA fournissant pptpd sur Ubuntu récents (noble).
 vpn_pptpd_ppa: "ppa:lucaskanashiro/ubuntu-server-noble-rebuilds"
 
-vpn_localip: "192.168.107.3"
-vpn_remoteip: "192.168.107.210-220"
+vpn_localip: "192.168.106.1"
+vpn_remoteip: "192.168.106.210-220"
 
 # Compte VPN partagé en clair (cf. leurre mail / poste-dsi).
 vpn_account_login: "campus"

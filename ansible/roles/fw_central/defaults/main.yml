@@ -1,0 +1,56 @@
+---
+# ============================================================================
+#  Rôle fw_central — pare-feu central segmenté (uc-srv-firewall)
+# ============================================================================
+#
+# Remplace l'ancien fw-legacy (périmétrique flat) par le firewall central de la
+# topologie V2 segmentée (cf. docs/V2/network.md). Le firewall est la GATEWAY
+# (.254) de chaque VLAN interne : tout l'inter-VLAN le traverse. Il porte aussi
+# le réseau de transit (192.168.108.1) vers le routeur Neutron (egress + FIP).
+#
+# Politique : DROP par défaut sur FORWARD (moindre privilège), avec autorisations
+# explicites conformes à la matrice RBAC d'IAM (docs/V2/IAM.md) :
+#   - services publics (moodle, web-rh, mail, vpn) accessibles (FIP + interne) ;
+#   - SSH d'administration uniquement depuis le poste DSI (192.168.103.1) ;
+#   - VLAN internes sensibles (db-rh, ldap, recherche) NON exposés -> cloisonnés
+#     par le DROP par défaut (étudiants/recherche ne joignent pas RH, etc.).
+
+# Réseau de transit firewall <-> routeur Neutron.
+fw_transit_ip: "192.168.108.1"
+fw_transit_gw: "192.168.108.254"
+
+# IP alias à porter sur l'interface transit (cibles des FIP, cf. floating_ips.tf).
+fw_transit_aliases:
+  - "192.168.108.10" # vpn
+  - "192.168.108.11" # mail
+  - "192.168.108.12" # moodle
+  - "192.168.108.13" # web-rh
+
+# Helpers conntrack PPTP (DNAT GRE du VPN).
+fw_pptp_modules:
+  - nf_conntrack_pptp
+  - nf_nat_pptp
+
+# --- DNAT ingress : alias transit -> service interne -------------------------
+fw_dnat_rules:
+  - { name: "vpn PPTP 1723", in_ip: "192.168.108.10", proto: tcp, dport: 1723, to: "192.168.106.1", to_port: 1723 }
+  - { name: "vpn GRE", in_ip: "192.168.108.10", proto: gre, to: "192.168.106.1" }
+  - { name: "mail SMTP", in_ip: "192.168.108.11", proto: tcp, dport: 25, to: "192.168.105.1", to_port: 25 }
+  - { name: "mail IMAP", in_ip: "192.168.108.11", proto: tcp, dport: 143, to: "192.168.105.1", to_port: 143 }
+  - { name: "mail POP3", in_ip: "192.168.108.11", proto: tcp, dport: 110, to: "192.168.105.1", to_port: 110 }
+  - { name: "moodle HTTP", in_ip: "192.168.108.12", proto: tcp, dport: 80, to: "192.168.107.1", to_port: 80 }
+  - { name: "moodle HTTPS", in_ip: "192.168.108.12", proto: tcp, dport: 443, to: "192.168.107.1", to_port: 443 }
+  - { name: "web-rh HTTP", in_ip: "192.168.108.13", proto: tcp, dport: 80, to: "192.168.104.2", to_port: 80 }
+
+# --- FORWARD : autorisations explicites (politique DROP par défaut) -----------
+# proto: tcp|udp|gre ; dports: liste multiport (omis pour gre) ; src/dst: CIDR/IP
+# (omis = n'importe). Tout ce qui n'est pas listé est DROP (cloisonnement).
+fw_forward_rules:
+  # Services publics exposés (accessibles depuis tous les VLAN + via FIP/DNAT).
+  - { name: "-> moodle (DMZ)", dst: "192.168.107.1", proto: tcp, dports: "80,443" }
+  - { name: "-> web-rh (RH expose)", dst: "192.168.104.2", proto: tcp, dports: "80" }
+  - { name: "-> mail", dst: "192.168.105.1", proto: tcp, dports: "25,143,110" }
+  - { name: "-> vpn PPTP", dst: "192.168.106.1", proto: tcp, dports: "1723" }
+  - { name: "-> vpn GRE", dst: "192.168.106.1", proto: gre }
+  # Administration : SSH uniquement depuis le poste DSI (RBAC Admin_DSI).
+  - { name: "DSI -> SSH partout", src: "192.168.103.1", proto: tcp, dports: "22" }

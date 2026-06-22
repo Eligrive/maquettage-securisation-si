@@ -1,0 +1,14 @@
+---
+- name: reload sysctl forward
+  ansible.builtin.command:
+    cmd: sysctl -p /etc/sysctl.d/99-uc-forward.conf
+  changed_when: false
+
+- name: reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: save iptables
+  ansible.builtin.command:
+    cmd: netfilter-persistent save
+  changed_when: false

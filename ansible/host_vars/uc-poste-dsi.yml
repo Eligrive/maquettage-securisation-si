@@ -41,11 +41,11 @@ poste_files:
       VPN d'acces distant (compte partage, cf. mail diffuse) :
         campus / unicampus2024
 
-      Comptes base RH (uc-db-rh, 192.168.107.20:3306) :
+      Comptes base RH (uc-db-rh, 192.168.104.3:3306) :
         root / root                  (administrateur, GRANT ALL ON *.*)
         rhapp / rh2024               (compte applicatif, GRANT sur rh.*)
 
-      Annuaire LDAP (uc-srv-ldap, 192.168.107.11) :
+      Annuaire LDAP (uc-srv-ldap, 192.168.104.1) :
         cn=admin,dc=unicampus,dc=local / unicampus2024
   # La chaîne d'attaque principale de SO2 passe par la réutilisation du compte
   # 'dsi' (cf. docs/scenarios-attaque.md), pas par vol de clé SSH. La clé reste

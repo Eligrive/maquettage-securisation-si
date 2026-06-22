@@ -22,6 +22,8 @@ poste_files:
     owner: ubuntu
     group: ubuntu
     content: |
-      Poste etudiant / attaquant (uc-poste-etu)
+      Poste etudiant / attaquant (uc-poste-etu, VLAN user 192.168.101.0/24)
       Outils installes : nmap, netcat, hydra, smbclient, nfs-common, ldap-utils.
-      Cible : sous-reseau 192.168.107.0/24 (maquette UniCampus+).
+      Cibles : VLAN segmentes 192.168.101-108.0/24 (maquette UniCampus+).
+      NB : le firewall central cloisonne l'inter-VLAN ; depuis ce poste, seuls
+      les services exposes (moodle/web-rh/mail/vpn) sont joignables directement.
