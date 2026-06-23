@@ -78,3 +78,36 @@ sudo docker compose -f $KC_DIR/docker-compose.yml exec -T keycloak \
   -s 'standardFlowEnabled=true'
 
 echo "✅ Client Roundcube configuré dans Keycloak !"
+
+# ==========================================
+# 5. APPLICATION COMPTABILITÉ / RH (WEB_RH)
+# ==========================================
+echo "📝 Création du client 'webrh-client'..."
+
+WEBRH_SECRET="Secret_WebRH_OIDC_2026_Ultra_Securise"
+
+# Création du client OIDC
+sudo docker compose -f $KC_DIR/docker-compose.yml exec -T keycloak \
+  /opt/keycloak/bin/kcadm.sh create clients -r master \
+  -s clientId="webrh-client" \
+  -s enabled=true \
+  -s publicClient=false \
+  -s secret="$WEBRH_SECRET" \
+  -s 'redirectUris=["https://webrh.unicampus.fr/auth-callback"]' \
+  -s 'standardFlowEnabled=true'
+
+# Récupération de l'ID interne du client pour lui assigner un Mapper
+CLIENT_ID_WEBRH=$(sudo docker compose -f $KC_DIR/docker-compose.yml exec -T keycloak /opt/keycloak/bin/kcadm.sh get clients -r master -q clientId=webrh-client --fields id --format csv | tr -d '"')
+
+# Ajout du Mapper pour transmettre les rôles/groupes (indispensable pour filtrer les accès RH)
+sudo docker compose -f $KC_DIR/docker-compose.yml exec -T keycloak \
+  /opt/keycloak/bin/kcadm.sh create clients/$CLIENT_ID_WEBRH/protocol-mappers/models -r master \
+  -s name="webrh-roles-mapper" \
+  -s protocol="openid-connect" \
+  -s protocolMapper="oidc-usermodel-realm-role-mapper" \
+  -s 'config."claim.name"="roles"' \
+  -s 'config."id.token.claim"="true"' \
+  -s 'config."access.token.claim"="true"' \
+  -s 'config."multivalued"="true"'
+
+echo "✅ Client Web_RH configuré dans Keycloak avec mappage des rôles !"
