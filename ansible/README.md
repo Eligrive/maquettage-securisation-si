@@ -35,6 +35,26 @@ maquette doit exister avant qu'on y installe les agents).
 > de la maquette) mais restent *modélisés* comme « non administrés » dans le SI
 > simulé — aucun agent Wazuh ne s'y exécute (cf. groupe `[postes_byod]`).
 
+### Lot V2 IAM / PKI (intégré à `provision.yml`)
+
+Le durcissement V2 ajoute le **SSO Keycloak**, le **bastion Teleport** et une
+**PKI interne** (pas de Let's Encrypt : aucun domaine public). Détails et flux de
+déploiement : [`docs/V2/integration-iam-pki.md`](../docs/V2/integration-iam-pki.md).
+
+| Composant | Hôte | Rôle Ansible |
+|---|---|---|
+| PKI interne (Root + CA intermédiaire + certs) | contrôleur | `pki` |
+| Ancre de confiance + split DNS | tous | `ca_trust`, `unicampus_dns` |
+| Reverse proxy nginx (terminaison TLS) | firewall central | `reverse_proxy` |
+| SSO Keycloak (Docker + fédération LDAP + OIDC) | `uc-srv-sso` | `keycloak` |
+| Webmail Roundcube (+ OIDC) | `uc-srv-roundcube` | `srv_roundcube` |
+| Bastion Teleport (auth/proxy + OIDC) | `uc-srv-bastion` | `bastion` |
+| Agents Teleport (SSH/DB) | nœuds infra + bases | `teleport_agent` |
+| LDAPS / SMTPS+IMAPS / OIDC apps | ldap, mail, moodle, web-rh | `srv_ldap`, `srv_mail`, `srv_moodle`, `web_rh` |
+
+Tags dédiés : `pki`, `proxy`, `keycloak`, `roundcube`, `bastion`, `teleport`,
+`iam`. Pré-requis : **openssl sur le contrôleur** (génération de la PKI).
+
 ## Pourquoi Ansible plutôt que les scripts cloud-init ?
 
 Les scripts `terraform/scripts/*.sh` injectés en `user_data` ont des limites : ils
