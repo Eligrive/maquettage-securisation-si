@@ -1,0 +1,32 @@
+# {{ ansible_managed }}
+# Agent Teleport ({{ inventory_hostname }}) raccordé au bastion {{ teleport_bastion_ip }}.
+# cf. V2_scripts/join_*_bastion.sh — SSH={{ teleport_agent_ssh_enabled }} DB={{ teleport_agent_db_enabled }}.
+version: v3
+teleport:
+  nodename: {{ inventory_hostname }}
+  data_dir: /var/lib/teleport
+  auth_server: {{ teleport_bastion_ip }}:3025
+  auth_token: {{ teleport_join_token }}
+
+ssh_service:
+  enabled: "{{ 'yes' if teleport_agent_ssh_enabled else 'no' }}"
+{% if teleport_agent_ssh_enabled %}
+  labels:
+    env: {{ teleport_agent_env_label }}
+{% endif %}
+
+db_service:
+  enabled: "{{ 'yes' if teleport_agent_db_enabled else 'no' }}"
+{% if teleport_agent_db_enabled and teleport_agent_databases | length > 0 %}
+  databases:
+{% for db in teleport_agent_databases %}
+    - name: "{{ db.name }}"
+      protocol: "{{ db.protocol }}"
+      uri: "{{ db.uri }}"
+      static_labels:
+        env: {{ db.env }}
+{% endfor %}
+{% endif %}
+
+app_service:
+  enabled: "no"

@@ -1,0 +1,10 @@
+---
+# ============================================================================
+#  Groupe [teleport_db] — agents Teleport exposant des bases de données
+# ============================================================================
+#  Le service db Teleport est activé ; le détail des bases (nom/protocole/uri)
+#  est défini par hôte (host_vars/uc-db-rh.yml, uc-calc-recherche.yml).
+#  Le service SSH dépend de l'hôte (désactivé sur uc-db-rh, activé sur calc).
+
+teleport_agent_db_enabled: true
+teleport_agent_ssh_enabled: false

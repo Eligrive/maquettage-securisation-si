@@ -26,3 +26,11 @@ wazuh_agent_logfiles:
     location: "/var/log/postgresql/postgresql-16-main.log"
   - format: "syslog"
     location: "/var/log/syslog"
+
+# --- Bastion Teleport (rôle teleport_agent) ---------------------------------
+# Machine recherche : accès SSH ET base PostgreSQL contrôlés par le bastion
+# (cf. V2_scripts/join_recherche_bastion.sh).
+teleport_agent_ssh_enabled: true
+teleport_agent_env_label: "recherche"
+teleport_agent_databases:
+  - { name: "lrid_results", protocol: "postgres", uri: "localhost:5432", env: "recherche" }

@@ -16,3 +16,10 @@ wazuh_agent_logfiles:
     location: "/var/log/mysql/error.log"
   - format: "mysql_log"
     location: "/var/log/mysql/mysql.log"
+
+# --- Bastion Teleport (rôle teleport_agent) ---------------------------------
+# Hôte purement « base de données » : pas de service SSH Teleport, accès MySQL
+# contrôlé par le bastion (cf. V2_scripts/join_dbrh_bastion.sh).
+teleport_agent_ssh_enabled: false
+teleport_agent_databases:
+  - { name: "rh", protocol: "mysql", uri: "localhost:3306", env: "rh" }

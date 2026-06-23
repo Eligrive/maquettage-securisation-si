@@ -1,0 +1,24 @@
+# {{ ansible_managed }}
+# Connecteur OIDC Teleport <-> Keycloak (cf. V2_scripts/setup_oidc_teleport.sh).
+# ⚠️ Les connecteurs OIDC sont une fonctionnalité Teleport ENTERPRISE. En OSS,
+# remplacer par un connecteur `kind: github`. La correspondance claims->rôles
+# s'appuie sur le mapper de rôles realm du client teleport-bastion (Keycloak).
+kind: oidc
+version: v3
+metadata:
+  name: keycloak
+spec:
+  redirect_url: "https://bastion.unicampus.fr/v1/webapi/oidc/callback"
+  client_id: "teleport-bastion"
+  client_secret: "{{ oidc_secrets.teleport }}"
+  issuer_url: "{{ keycloak_issuer_url }}"
+  claims_to_roles:
+    - claim: "roles"
+      value: "Admin_DSI"
+      roles: ["role-teleport-admin-dsi"]
+    - claim: "roles"
+      value: "Admin_DBA"
+      roles: ["role-teleport-admin-dba"]
+    - claim: "roles"
+      value: "Chercheur"
+      roles: ["role-teleport-chercheur"]

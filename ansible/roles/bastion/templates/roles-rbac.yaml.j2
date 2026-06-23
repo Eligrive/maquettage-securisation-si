@@ -1,0 +1,34 @@
+# {{ ansible_managed }}
+# Rôles RBAC Teleport (cf. V2_scripts/setup_oidc_teleport.sh) — moindre
+# privilège aligné sur la matrice IAM (docs/V2/IAM.md).
+kind: role
+version: v5
+metadata:
+  name: role-teleport-admin-dsi
+spec:
+  allow:
+    logins: ['ubuntu', 'dsi']
+    node_labels:
+      '*': '*'
+---
+kind: role
+version: v5
+metadata:
+  name: role-teleport-admin-dba
+spec:
+  allow:
+    db_labels:
+      '*': '*'
+    db_names: ['lrid_results', 'rh']
+    db_users: ['recherche', 'rhapp', 'root']
+---
+kind: role
+version: v5
+metadata:
+  name: role-teleport-chercheur
+spec:
+  allow:
+    db_labels:
+      'env': 'recherche'
+    db_names: ['lrid_results']
+    db_users: ['recherche']
