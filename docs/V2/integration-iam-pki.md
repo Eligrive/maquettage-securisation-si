@@ -75,7 +75,7 @@ répond directement derrière la FIP existante.
 | `ca_trust` | tous les serveurs + postes | installe `rootCA.crt` dans le magasin système (`update-ca-certificates`) |
 | `unicampus_dns` | tous les serveurs + postes | `/etc/hosts` : `*.unicampus.fr` → reverse proxy |
 | `reverse_proxy` | firewall | nginx + certificat multi-SAN + vhosts HTTPS |
-| `keycloak` | uc-srv-sso | Docker + Compose (Keycloak + PostgreSQL) + fédération LDAP + clients OIDC |
+| `keycloak` | uc-srv-sso | Docker + Compose (Keycloak + PostgreSQL) + realm `unicampus` (rôles + groupes RBAC) + fédération LDAP + clients OIDC |
 | `srv_roundcube` | uc-srv-roundcube | Apache/PHP + Roundcube + plugin OIDC |
 | `bastion` | uc-srv-bastion | Teleport (auth+proxy) + connecteur OIDC + rôles RBAC |
 | `teleport_agent` | nœuds infra + bases | agent Teleport raccordé au bastion (SSH/DB) |
@@ -137,8 +137,13 @@ vers `192.168.108.1` côté interne).
 * **Connecteur OIDC Teleport = fonctionnalité Enterprise.** En édition OSS,
   remplacer le `kind: oidc` par un connecteur `kind: github`. L'application du
   connecteur est rendue tolérante (`teleport_oidc_required: false`).
-* **Realm Keycloak = `master`** : conforme aux `V2_scripts/` (« ne pas trop
-  changer la partie IAM »). Un realm applicatif dédié serait préférable en prod.
+* **Realms Keycloak** : un realm applicatif dédié **`unicampus`** porte les
+  utilisateurs fédérés, les clients OIDC et le RBAC (rôles `Etudiant`,
+  `Professeur`, `Chercheur`, `Admin_DSI`, `Admin_DBA`, `Admin_RH`, `Externe` +
+  groupes `Etudiants`/`Equipe_DSI`/… avec rôle assigné). Le realm **`master`**
+  est **strictement réservé à l'administration** de Keycloak (login admin). Le
+  rattachement des utilisateurs LDAP aux groupes se fait en console (ou via un
+  group-mapper LDAP).
 * **TLS messagerie en `may`/`yes`** (et non `required`) : le chiffrement est
   *disponible* sans casser les scénarios plaintext de la maquette V1. À durcir
   (`required`) pour la cible de production.
