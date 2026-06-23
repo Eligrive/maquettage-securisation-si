@@ -11,8 +11,16 @@ moodle_db_user: "moodle"
 moodle_db_pass: "unicampus2024"
 moodle_admin_pass: "Admin2024" # volontairement faible
 
-# Moodle redirige toutes les requêtes vers wwwroot : ce doit être l'URL PUBLIQUE
-# (Floating IP), sinon les clients externes sont renvoyés vers l'IP interne
-# inaccessible. Surchargé en CI/local par -e moodle_wwwroot=http://<FIP_moodle>
-# (cf. output terraform moodle_floating_ip). Fallback = IP interne (debug local).
-moodle_wwwroot: "http://192.168.107.1"
+# Moodle redirige toutes les requêtes vers wwwroot : en V2 c'est l'URL PUBLIQUE
+# HTTPS servie par le reverse proxy (terminaison TLS PKI + SSO). Le proxy relaie
+# en HTTP vers Moodle -> $CFG->sslproxy doit être vrai (cf. tasks). Surchargeable
+# en CI/local par -e moodle_wwwroot=... (ex. http://<FIP_moodle> pour la V1).
+moodle_wwwroot: "https://moodle.unicampus.fr"
+
+# --- SSO Keycloak (OIDC) — cf. V2_scripts/install_oidc_moodle.sh -------------
+# Plugin officiel Microsoft auth_oidc. La bascule en masse des comptes existants
+# vers OIDC (UPDATE mdl_user) est désactivée par défaut pour ne pas verrouiller
+# le compte admin local de secours ; activer avec moodle_oidc_migrate_users=true.
+moodle_oidc_plugin_repo: "https://github.com/microsoft/moodle-auth_oidc.git"
+moodle_oidc_client_id: "moodle-client"
+moodle_oidc_migrate_users: false

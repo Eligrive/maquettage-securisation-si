@@ -29,9 +29,32 @@
   register: _apt_mail
   until: _apt_mail is succeeded
 
+# --- V2 : certificat PKI interne (STARTTLS Postfix/Dovecot, cf. PKI.md §5.B) --
+- name: TLS — déposer la fullchain de messagerie
+  ansible.builtin.copy:
+    src: "{{ pki_dir }}/mail.fullchain.crt"
+    dest: /etc/ssl/certs/mail.fullchain.crt
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - restart postfix
+    - restart dovecot
+
+- name: TLS — déposer la clé privée de messagerie
+  ansible.builtin.copy:
+    src: "{{ pki_dir }}/mail.key"
+    dest: /etc/ssl/private/mail.key
+    owner: root
+    group: dovecot
+    mode: "0640"
+  notify:
+    - restart postfix
+    - restart dovecot
+
 # --- Postfix : écoute partout, relais ouvert, aucun TLS, Maildir -------------
 # Bloc d'overrides en fin de main.cf (la dernière définition d'une clé gagne).
-- name: Surcharger la configuration Postfix (clair + relais ouvert)
+- name: Surcharger la configuration Postfix (relais ouvert + STARTTLS V2)
   ansible.builtin.blockinfile:
     path: /etc/postfix/main.cf
     marker: "# {mark} ANSIBLE MANAGED: maquette vulnérable (srv_mail)"
@@ -40,8 +63,12 @@
       inet_protocols = ipv4
       mydestination = {{ mail_domain }}, localhost.localdomain, localhost
       mynetworks = 0.0.0.0/0
-      smtpd_tls_security_level = none
       home_mailbox = Maildir/
+      # V2 : STARTTLS opportuniste (PKI interne). « may » conserve le clair pour
+      # la rétro-compat maquette, tout en proposant le chiffrement (règle 31 ANSSI).
+      smtpd_tls_security_level = may
+      smtpd_tls_cert_file = /etc/ssl/certs/mail.fullchain.crt
+      smtpd_tls_key_file = /etc/ssl/private/mail.key
   notify: restart postfix
 
 # --- Dovecot : plaintext autorisé, pas de TLS, Maildir ----------------------
@@ -66,11 +93,27 @@
     line: "mail_location = maildir:~/Maildir"
   notify: restart dovecot
 
-- name: Dovecot — désactiver TLS
+- name: Dovecot — activer TLS (STARTTLS, PKI interne)
   ansible.builtin.lineinfile:
     path: /etc/dovecot/conf.d/10-ssl.conf
     regexp: '^#?\s*ssl\s*='
-    line: "ssl = no"
+    # « yes » (et non « required ») : le chiffrement est disponible sans casser
+    # l'auth plaintext historique de la maquette (vuln V1 conservée pour la démo).
+    line: "ssl = yes"
+  notify: restart dovecot
+
+- name: Dovecot — certificat TLS (PKI interne)
+  ansible.builtin.lineinfile:
+    path: /etc/dovecot/conf.d/10-ssl.conf
+    regexp: '^#?\s*ssl_cert\s*='
+    line: "ssl_cert = </etc/ssl/certs/mail.fullchain.crt"
+  notify: restart dovecot
+
+- name: Dovecot — clé privée TLS (PKI interne)
+  ansible.builtin.lineinfile:
+    path: /etc/dovecot/conf.d/10-ssl.conf
+    regexp: '^#?\s*ssl_key\s*='
+    line: "ssl_key = </etc/ssl/private/mail.key"
   notify: restart dovecot
 
 # --- Leurre : mail informel DSI partagé en clair (compte admin réutilisé) ----

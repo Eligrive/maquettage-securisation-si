@@ -137,3 +137,67 @@
     name: apache2
     state: started
     enabled: true
+
+# ============================================================================
+#  V2 — Reverse proxy HTTPS : Moodle est derrière un proxy qui termine le TLS
+# ============================================================================
+- name: Moodle derrière le reverse proxy (sslproxy)
+  ansible.builtin.lineinfile:
+    path: /var/www/html/moodle/config.php
+    insertafter: '^\$CFG->wwwroot'
+    line: "$CFG->sslproxy = true;"
+    regexp: '^\$CFG->sslproxy'
+  failed_when: false
+
+# ============================================================================
+#  V2 — SSO Keycloak (plugin auth_oidc) — cf. V2_scripts/install_oidc_moodle.sh
+# ============================================================================
+- name: OIDC — cloner le plugin auth_oidc
+  ansible.builtin.git:
+    repo: "{{ moodle_oidc_plugin_repo }}"
+    dest: /var/www/html/moodle/auth/oidc
+    depth: 1
+    version: HEAD
+    update: false
+  register: _moodle_oidc_clone
+
+- name: OIDC — droits du plugin (www-data)
+  ansible.builtin.file:
+    path: /var/www/html/moodle/auth/oidc
+    owner: www-data
+    group: www-data
+    recurse: true
+
+- name: OIDC — intégrer le plugin (upgrade Moodle non interactif)
+  ansible.builtin.command:
+    cmd: sudo -u www-data php /var/www/html/moodle/admin/cli/upgrade.php --non-interactive
+  when: _moodle_oidc_clone is changed
+  changed_when: _moodle_oidc_clone is changed
+
+- name: OIDC — activer la méthode d'authentification (oidc + manual)
+  ansible.builtin.command:
+    cmd: sudo -u www-data php /var/www/html/moodle/admin/cli/cfg.php --name=auth --set="oidc,manual"
+  changed_when: false
+
+- name: OIDC — paramètres du client Keycloak
+  ansible.builtin.command:
+    cmd: >-
+      sudo -u www-data php /var/www/html/moodle/admin/cli/cfg.php
+      --component=auth_oidc --name={{ item.name }} --set={{ item.value | quote }}
+  loop:
+    - { name: "clientid", value: "{{ moodle_oidc_client_id }}" }
+    - { name: "clientsecret", value: "{{ oidc_secrets.moodle }}" }
+    - { name: "opurl", value: "{{ keycloak_issuer_url }}" }
+  loop_control:
+    label: "{{ item.name }}"
+  changed_when: false
+  no_log: true
+
+- name: OIDC — bascule des comptes locaux vers le SSO (optionnel)
+  ansible.builtin.command:
+    cmd: >-
+      mysql -u {{ moodle_db_user }} -p{{ moodle_db_pass }} {{ moodle_db_name }}
+      -e "UPDATE mdl_user SET auth='oidc' WHERE auth='manual' AND username!='admin';"
+  when: moodle_oidc_migrate_users | bool
+  changed_when: moodle_oidc_migrate_users | bool
+  no_log: true

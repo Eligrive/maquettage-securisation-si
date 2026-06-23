@@ -35,11 +35,13 @@
   register: _apt_ldap
   until: _apt_ldap is succeeded
 
-- name: slapd écoute en clair (ldap:/// + ldapi:///)
+- name: slapd écoute en clair ET en LDAPS (ldap:/// ldaps:/// ldapi:///)
   ansible.builtin.lineinfile:
     path: /etc/default/slapd
     regexp: '^SLAPD_SERVICES='
-    line: 'SLAPD_SERVICES="ldap:/// ldapi:///"'
+    # V2 : on ajoute ldaps:/// (port 636, TLS PKI). ldap:/// reste actif pour
+    # la fédération Keycloak existante et la rétro-compat maquette.
+    line: 'SLAPD_SERVICES="ldap:/// ldaps:/// ldapi:///"'
   notify: restart slapd
 
 - name: Appliquer la conf slapd avant les opérations LDAP
@@ -91,3 +93,59 @@
     cmd: "ldapadd -x -H ldapi:/// -D cn=admin,{{ ldap_base_dn }} -w {{ ldap_admin_password }} -f /tmp/uc-base.ldif"
   when: _ldap_people.rc != 0
   no_log: true
+
+# ============================================================================
+#  V2 — LDAPS (TLS sur port 636) via la PKI interne (cf. docs/V2/PKI.md §5.C)
+# ============================================================================
+#  Corrige le LDAP en clair (règle 31 ANSSI). Le certificat ldap.* est émis par
+#  le rôle pki sur le contrôleur ; la clé est lisible par l'utilisateur openldap.
+- name: LDAPS — déposer la chaîne de CA (intermédiaire + racine)
+  ansible.builtin.copy:
+    src: "{{ pki_dir }}/ca-chain.crt"
+    dest: /etc/ssl/certs/unicampus-ca.crt
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart slapd
+
+- name: LDAPS — déposer la fullchain serveur
+  ansible.builtin.copy:
+    src: "{{ pki_dir }}/ldap.fullchain.crt"
+    dest: /etc/ssl/certs/ldap.fullchain.crt
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart slapd
+
+- name: LDAPS — déposer la clé privée (lisible par openldap)
+  ansible.builtin.copy:
+    src: "{{ pki_dir }}/ldap.key"
+    dest: /etc/ssl/private/ldap.key
+    owner: openldap
+    group: openldap
+    mode: "0640"
+  notify: restart slapd
+
+- name: LDAPS — vérifier si la conf TLS est déjà appliquée
+  ansible.builtin.shell:
+    cmd: "ldapsearch -Y EXTERNAL -H ldapi:/// -b cn=config -LLL olcTLSCertificateFile 2>/dev/null | grep -q ldap.fullchain.crt"
+  register: _ldaps_set
+  changed_when: false
+  failed_when: false
+
+- name: LDAPS — appliquer la configuration TLS (cn=config)
+  ansible.builtin.shell: |
+    ldapmodify -Y EXTERNAL -H ldapi:/// <<'EOF'
+    dn: cn=config
+    changetype: modify
+    replace: olcTLSCACertificateFile
+    olcTLSCACertificateFile: /etc/ssl/certs/unicampus-ca.crt
+    -
+    replace: olcTLSCertificateFile
+    olcTLSCertificateFile: /etc/ssl/certs/ldap.fullchain.crt
+    -
+    replace: olcTLSCertificateKeyFile
+    olcTLSCertificateKeyFile: /etc/ssl/private/ldap.key
+    EOF
+  when: _ldaps_set.rc != 0
+  notify: restart slapd
