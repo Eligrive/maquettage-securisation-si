@@ -1,0 +1,24 @@
+---
+# ============================================================================
+#  Rôle srv_roundcube — webmail Roundcube (front IMAP/SMTP de uc-srv-mail) + OIDC
+# ============================================================================
+#  Nouveau service V2 : un webmail moderne, exposé en HTTPS via le reverse proxy
+#  (mail.unicampus.fr) et authentifié par Keycloak (plugin oidc_login). Reprend
+#  V2_scripts/{install,setup}_oidc_roundcube.sh.
+
+# Backend mail (uc-srv-mail). En V2 le lien interne utilise STARTTLS (tls://),
+# la messagerie ayant reçu un certificat PKI (cf. rôle srv_mail durci TLS).
+roundcube_mail_ip: "192.168.105.1"
+roundcube_imap_host: "tls://192.168.105.1"
+roundcube_imap_port: 143
+roundcube_smtp_host: "tls://192.168.105.1"
+roundcube_smtp_port: 25
+
+# Emplacements Debian/Ubuntu du paquet roundcube.
+roundcube_webroot: "/var/lib/roundcube"
+roundcube_config: "/etc/roundcube/config.inc.php"
+
+# Plugin OIDC (dépôt repris de V2_scripts/install_oidc_roundcube.sh).
+roundcube_oidc_plugin_repo: "https://github.com/mstahv/roundcube-oidc-login.git"
+roundcube_oidc_client_id: "roundcube-client"
+roundcube_oidc_redirect_uri: "https://mail.unicampus.fr/index.php/login/oauth"
