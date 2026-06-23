@@ -66,3 +66,8 @@ fw_forward_rules:
   - { name: "-> vpn GRE", dst: "192.168.106.1", proto: gre }
   # Administration : SSH uniquement depuis le poste DSI (RBAC Admin_DSI).
   - { name: "DSI -> SSH partout", src: "192.168.103.1", proto: tcp, dports: "22" }
+  # --- Lot V2 IAM -----------------------------------------------------------
+  # Fédération : Keycloak (DMZ) interroge l'annuaire LDAP(S) (VLAN RH).
+  - { name: "keycloak -> ldap", src: "192.168.107.3", dst: "192.168.104.1", proto: tcp, dports: "389,636" }
+  # Bastion Teleport : les agents (infra/DB) s'enrôlent et tunnellent vers lui.
+  - { name: "-> bastion teleport", dst: "192.168.103.2", proto: tcp, dports: "3022,3023,3024,3025,3080" }
