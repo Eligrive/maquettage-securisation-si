@@ -1,4 +1,5 @@
 #!/bin/bash
+# Script d'installation de keycloak
 
 echo "Préparation du dossier Keycloak..."
 sudo mkdir -p /opt/keycloak

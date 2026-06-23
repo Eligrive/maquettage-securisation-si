@@ -1,4 +1,5 @@
 #!/bin/bash
+# Script de setup du DNS 
 
 # 1. Définition de l'IP cible (l'IP du Pare-feu / Reverse Proxy sur ce réseau)
 PROXY_IP="192.168.108.1" 

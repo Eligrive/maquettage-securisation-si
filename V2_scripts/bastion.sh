@@ -1,4 +1,5 @@
 #!/bin/bash
+# Script d'installation et setup de Teleport sur la machine bastion 
 
 # 1. Ajout du dépôt officiel Teleport pour Ubuntu
 curl https://apt.releases.teleport.dev/gpg | sudo gpg --dearmor -o /usr/share/keyrings/teleport-archive-keyring.gpg

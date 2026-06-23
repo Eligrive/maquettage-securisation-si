@@ -1,4 +1,5 @@
 #!/bin/bash
+#Script d'installation de docker pour le SSO 
 
 # 1. Nettoyage des anciennes versions conflictuelles
 sudo apt remove -y docker.io docker-compose docker-doc podman-docker containerd runc
