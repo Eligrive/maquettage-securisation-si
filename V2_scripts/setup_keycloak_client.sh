@@ -60,3 +60,21 @@ sudo docker compose -f $KC_DIR/docker-compose.yml exec -T keycloak \
   -s 'standardFlowEnabled=true'
 
 echo "✅ Tous les clients Keycloak sont configurés avec succès !"
+
+# ==========================================
+# 4. CLIENT WEBMAIL (ROUNDCUBE)
+# ==========================================
+echo "📝 Création du client 'roundcube-client'..."
+
+ROUNDCUBE_SECRET="Secret_Roundcube_OIDC_2024_Ultra_Securise"
+
+sudo docker compose -f $KC_DIR/docker-compose.yml exec -T keycloak \
+  /opt/keycloak/bin/kcadm.sh create clients -r master \
+  -s clientId="roundcube-client" \
+  -s enabled=true \
+  -s publicClient=false \
+  -s secret="$ROUNDCUBE_SECRET" \
+  -s 'redirectUris=["https://mail.unicampus.fr/index.php/login/oauth"]' \
+  -s 'standardFlowEnabled=true'
+
+echo "✅ Client Roundcube configuré dans Keycloak !"
