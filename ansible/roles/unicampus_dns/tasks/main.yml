@@ -1,0 +1,20 @@
+---
+# ============================================================================
+#  Rôle unicampus_dns — résolution interne (split DNS) des FQDN *.unicampus.fr
+# ============================================================================
+#  Sans serveur DNS dédié, on injecte dans /etc/hosts la correspondance
+#  FQDN public -> IP INTERNE du reverse proxy (le firewall central, 192.168.108.1).
+#  Côté Internet ces mêmes noms pointent vers la Floating IP du firewall ; côté
+#  interne ils pointent ici → c'est le « Split DNS » décrit dans keycloak.md
+#  (évite le bouclage/Hairpin NAT quand uc-web-rh appelle sso.unicampus.fr).
+#
+#  Reprend V2_scripts/DNS.sh, rendu idempotent et piloté par iam_vhosts.
+
+- name: Injecter les résolutions internes *.unicampus.fr -> reverse proxy
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    marker: "# {mark} ANSIBLE MANAGED: split-DNS UniCampus V2 (unicampus_dns)"
+    block: |
+      {% for vhost in iam_vhosts %}
+      {{ reverse_proxy_ip }}    {{ vhost.fqdn }}
+      {% endfor %}
