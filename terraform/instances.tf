@@ -3,10 +3,12 @@
 #  Instances V2 segmentées
 # ============================================================================
 #
-# 10 VMs métier, chacune sur un port à IP fixe dans son VLAN (cf. network.tf),
-# + le pare-feu central uc-srv-firewall, multi-homed (un pied par VLAN interne
-# + le transit). Le firewall remplace l'ancien fw-legacy périmétrique : il route
-# et filtre tout l'inter-VLAN (rôle Ansible fw_central).
+# 13 VMs métier (dont le lot V2 IAM : srv-sso/Keycloak, srv-roundcube/webmail en
+# DMZ et srv-bastion/Teleport en VLAN admin), chacune sur un port à IP fixe dans
+# son VLAN (cf. network.tf), + le pare-feu central uc-srv-firewall, multi-homed
+# (un pied par VLAN interne + le transit). Le firewall remplace l'ancien fw-legacy
+# périmétrique : il route et filtre tout l'inter-VLAN, et héberge le reverse proxy
+# nginx (terminaison TLS PKI) de la V2 (rôles Ansible fw_central + reverse_proxy).
 #
 # Toutes les VMs : Ubuntu 24.04, m1.small, zone "cisco" (la zone "nova" du
 # cluster école est saturée ; m1.tiny trop petit pour l'image, cf. data.tf).

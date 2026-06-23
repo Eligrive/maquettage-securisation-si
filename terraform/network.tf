@@ -49,17 +49,22 @@ locals {
   }
 
   # IP fixes des VMs internes (cf. docs/V2/network.md).
+  # Lot V2 IAM/PKI : srv-sso (Keycloak), srv-roundcube (webmail) en DMZ ;
+  # srv-bastion (Teleport) dans le VLAN d'administration.
   vm_ips = {
     poste-etu      = "192.168.101.1"
     poste-prof     = "192.168.101.2"
     calc-recherche = "192.168.102.1"
     poste-dsi      = "192.168.103.1"
+    srv-bastion    = "192.168.103.2"
     srv-ldap       = "192.168.104.1"
     web-rh         = "192.168.104.2"
     db-rh          = "192.168.104.3"
     srv-mail       = "192.168.105.1"
     vpn-legacy     = "192.168.106.1"
     srv-moodle     = "192.168.107.1"
+    srv-roundcube  = "192.168.107.2"
+    srv-sso        = "192.168.107.3"
   }
 
   # VLAN d'appartenance de chaque VM.
@@ -68,12 +73,15 @@ locals {
     poste-prof     = "user"
     calc-recherche = "recherche"
     poste-dsi      = "admin"
+    srv-bastion    = "admin"
     srv-ldap       = "rh"
     web-rh         = "rh"
     db-rh          = "rh"
     srv-mail       = "mail"
     vpn-legacy     = "vpn"
     srv-moodle     = "dmz"
+    srv-roundcube  = "dmz"
+    srv-sso        = "dmz"
   }
 
   # Services exposés en Floating IP : chaque service a une IP alias sur le port
