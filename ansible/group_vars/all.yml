@@ -25,3 +25,116 @@ wazuh_version: "4.9"
 # enrôlement 1515). En segmenté = IP SOC du SIEM ; en flat = IP campus.
 # Peut être surchargée par l'inventaire (cf. hosts.flat.ini) ou la CI.
 wazuh_manager_address: "192.168.109.1"
+
+# ============================================================================
+#  Lot V2 — IAM (Keycloak SSO + bastion Teleport) & PKI interne
+# ============================================================================
+#  Variables PARTAGÉES par les rôles pki / reverse_proxy / keycloak /
+#  srv_roundcube / bastion / teleport_agent / oidc des applis.
+#  cf. docs/V2/IAM.md, docs/V2/keycloak.md, docs/V2/PKI.md.
+#
+#  ⚠️ Secrets en clair ASSUMÉS : maquette pédagogique. En production ils
+#  iraient dans ansible-vault. Ils reprennent volontairement les valeurs des
+#  scripts de référence V2_scripts/ pour rester cohérents (« ne pas trop
+#  changer la partie IAM »).
+
+# --- Domaines & entrée web --------------------------------------------------
+# unicampus.fr = noms publics des services web (servis en HTTPS par le reverse
+# proxy). unicampus.local = domaine interne LDAP/mail historique (V1).
+unicampus_public_domain: "unicampus.fr"
+unicampus_internal_domain: "unicampus.local"
+
+# IP du reverse proxy = le firewall central lui-même (nginx y est hébergé,
+# cf. choix d'archi). Côté interne, tous les FQDN *.unicampus.fr résolvent ici
+# (rôle unicampus_dns) ; côté Internet ils résolvent vers sa Floating IP.
+reverse_proxy_ip: "192.168.108.1"
+
+# FQDN publics -> backend interne (HTTP en clair derrière le proxy qui termine
+# le TLS). Consommé par le rôle reverse_proxy (nginx) et unicampus_dns.
+iam_vhosts:
+  - { fqdn: "sso.unicampus.fr", backend: "http://192.168.107.3:8080" }       # Keycloak
+  - { fqdn: "moodle.unicampus.fr", backend: "http://192.168.107.1:80" }      # Moodle
+  - { fqdn: "mail.unicampus.fr", backend: "http://192.168.107.2:80" }        # Roundcube
+  - { fqdn: "rh.unicampus.fr", backend: "http://192.168.104.2:80" }          # Web RH
+  - { fqdn: "webrh.unicampus.fr", backend: "http://192.168.104.2:80" }       # Web RH (alias redirect OIDC)
+  - { fqdn: "bastion.unicampus.fr", backend: "https://192.168.103.2:3080" }  # Teleport (TLS interne)
+
+# --- Keycloak ---------------------------------------------------------------
+keycloak_internal_ip: "192.168.107.3"
+keycloak_admin_user: "admin"
+keycloak_admin_password: "Mon_mot_de_passe"
+keycloak_db_password: "password"
+# Les scripts de référence créent clients/fédération dans le realm master.
+keycloak_realm: "master"
+keycloak_issuer_url: "https://sso.unicampus.fr/realms/{{ keycloak_realm }}"
+
+# Fédération LDAP (read-only : on n'importe pas les userPassword V1 faibles ;
+# reset forcé au 1er login via l'action requise UPDATE_PASSWORD).
+keycloak_ldap_url: "ldap://192.168.104.1:389"
+keycloak_ldap_bind_dn: "cn=admin,{{ ldap_base_dn }}"
+keycloak_ldap_bind_password: "{{ ldap_admin_password }}"
+keycloak_ldap_users_dn: "ou=people,{{ ldap_base_dn }}"
+
+# Base DN LDAP (aussi défini dans le rôle srv_ldap ; centralisé ici pour les
+# rôles IAM qui n'ont pas srv_ldap dans leurs dépendances).
+ldap_base_dn: "dc=unicampus,dc=local"
+ldap_admin_password: "unicampus2024"
+
+# --- Secrets OIDC (clients Keycloak <-> applis) -----------------------------
+oidc_secrets:
+  moodle: "Secret_Moodle_OIDC_2024_Ultra_Securise"
+  roundcube: "Secret_Roundcube_OIDC_2024_Ultra_Securise"
+  webrh: "Secret_WebRH_OIDC_2026_Ultra_Securise"
+  teleport: "Secret_Teleport_OIDC_2024_Ultra_Securise"
+
+# --- Bastion Teleport -------------------------------------------------------
+teleport_version: "15"
+teleport_bastion_ip: "192.168.103.2"
+# Jeton de jointure pré-partagé (maquette). En prod : tokens éphémères tctl.
+teleport_join_token: "Token_De_Jointure_Teleport_V2_UniCampus_2026"
+
+# ============================================================================
+#  PKI interne (Root CA offline + CA intermédiaire + certs serveurs fullchain)
+# ============================================================================
+#  Générée CÔTÉ CONTRÔLEUR par le rôle pki (openssl, idempotent). Les clés
+#  privées restent sous {{ pki_dir }} (gitignored) et ne sont JAMAIS commitées.
+#  Le rootCA.crt est distribué à tous les hôtes comme ancre de confiance.
+pki_dir: "{{ playbook_dir }}/pki"
+pki_subject_country: "FR"
+pki_subject_state: "Ile-de-France"
+pki_subject_locality: "Paris"
+pki_subject_org: "UniCampus"
+
+# Certificats serveurs (leaf) émis par la CA intermédiaire.
+#   name      : préfixe des fichiers ({{ pki_dir }}/<name>.{key,crt,fullchain.crt})
+#   cn        : Common Name
+#   sans      : Subject Alternative Names (DNS)
+pki_server_certs:
+  # Certificat multi-SAN porté par nginx sur le firewall (toutes les apps web).
+  - name: "reverse-proxy"
+    cn: "sso.unicampus.fr"
+    sans:
+      - "sso.unicampus.fr"
+      - "moodle.unicampus.fr"
+      - "mail.unicampus.fr"
+      - "rh.unicampus.fr"
+      - "webrh.unicampus.fr"
+      - "bastion.unicampus.fr"
+  # LDAPS (port 636) sur uc-srv-ldap.
+  - name: "ldap"
+    cn: "srv-ldap.unicampus.local"
+    sans:
+      - "srv-ldap.unicampus.local"
+      - "uc-srv-ldap"
+  # Postfix/Dovecot (SMTPS/IMAPS) sur uc-srv-mail.
+  - name: "mail"
+    cn: "mail.unicampus.fr"
+    sans:
+      - "mail.unicampus.fr"
+      - "smtp.unicampus.fr"
+      - "uc-srv-mail"
+  # Certificat propre au bastion Teleport (TLS interne 3080, proxifié par nginx).
+  - name: "bastion"
+    cn: "bastion.unicampus.fr"
+    sans:
+      - "bastion.unicampus.fr"
