@@ -1,0 +1,121 @@
+---
+# ============================================================================
+#  Rôle keycloak — Docker + Compose (Keycloak + PostgreSQL) + config OIDC/LDAP
+# ============================================================================
+
+# --- 1. Moteur Docker (cf. V2_scripts/docker.sh) ----------------------------
+- name: Installer les prérequis Docker
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+    state: present
+    update_cache: true
+  retries: 3
+  delay: 10
+  register: _apt_docker_pre
+  until: _apt_docker_pre is succeeded
+
+- name: Créer le répertoire des clés APT
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Ajouter la clé GPG du dépôt Docker
+  ansible.builtin.get_url:
+    url: "https://download.docker.com/linux/ubuntu/gpg"
+    dest: /etc/apt/keyrings/docker.asc
+    mode: "0644"
+
+- name: Ajouter le dépôt APT Docker
+  ansible.builtin.apt_repository:
+    repo: "deb [arch={{ ansible_architecture | replace('x86_64', 'amd64') }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+    filename: docker
+    state: present
+
+- name: Installer Docker Engine + plugin compose
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+    update_cache: true
+  retries: 3
+  delay: 10
+  register: _apt_docker
+  until: _apt_docker is succeeded
+
+- name: Activer et démarrer Docker
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: true
+
+# --- 2. Déploiement de la stack Keycloak (cf. V2_scripts/keycloak.sh) --------
+- name: Créer le répertoire Keycloak
+  ansible.builtin.file:
+    path: "{{ keycloak_dir }}"
+    state: directory
+    mode: "0750"
+
+- name: Déposer le docker-compose Keycloak + PostgreSQL
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ keycloak_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0640"
+  register: _kc_compose
+
+- name: Lancer (ou mettre à jour) la stack Keycloak
+  ansible.builtin.command:
+    cmd: "docker compose -f {{ keycloak_dir }}/docker-compose.yml up -d"
+  register: _kc_up
+  changed_when: "'Started' in _kc_up.stderr or 'Created' in _kc_up.stderr or _kc_compose is changed"
+
+# --- 3. Attente de disponibilité (login kcadm) ------------------------------
+- name: Attendre que Keycloak réponde à l'API d'admin
+  ansible.builtin.command:
+    cmd: >-
+      docker compose -f {{ keycloak_dir }}/docker-compose.yml exec -T keycloak
+      /opt/keycloak/bin/kcadm.sh config credentials
+      --server http://localhost:8080 --realm master
+      --user {{ keycloak_admin_user }} --password {{ keycloak_admin_password }}
+  register: _kc_login
+  until: _kc_login.rc == 0
+  retries: "{{ keycloak_ready_retries }}"
+  delay: "{{ keycloak_ready_delay }}"
+  changed_when: false
+  no_log: true
+
+# --- 4. Configuration : fédération LDAP + clients OIDC + MFA -----------------
+#  Script idempotent (get-or-create) pour rester fidèle aux V2_scripts tout en
+#  étant rejouable. Le marqueur évite de le relancer à chaque play.
+- name: Déposer le script de configuration Keycloak
+  ansible.builtin.template:
+    src: kc-configure.sh.j2
+    dest: "{{ keycloak_dir }}/kc-configure.sh"
+    owner: root
+    group: root
+    mode: "0750"
+  register: _kc_cfg_script
+
+- name: Vérifier si Keycloak est déjà configuré (marqueur)
+  ansible.builtin.stat:
+    path: "{{ keycloak_configured_marker }}"
+  register: _kc_marker
+
+- name: Configurer Keycloak (fédération LDAP + clients OIDC + MFA)
+  ansible.builtin.command:
+    cmd: "bash {{ keycloak_dir }}/kc-configure.sh"
+  register: _kc_configure
+  changed_when: "'CREATED' in _kc_configure.stdout"
+  when: >-
+    keycloak_force_configure | bool
+    or _kc_cfg_script is changed
+    or not _kc_marker.stat.exists

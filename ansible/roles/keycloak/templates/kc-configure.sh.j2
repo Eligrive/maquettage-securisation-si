@@ -1,0 +1,91 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# ============================================================================
+#  Configuration Keycloak — fédération LDAP + clients OIDC (idempotent)
+# ============================================================================
+#  Reprend V2_scripts/setup_ldap.sh + setup_keycloak_client.sh, rendu rejouable
+#  (get-or-create). Émet « CREATED ... » à chaque objet créé (Ansible changed_when).
+set -euo pipefail
+
+COMPOSE="docker compose -f {{ keycloak_dir }}/docker-compose.yml"
+REALM="{{ keycloak_realm }}"
+
+kc() { $COMPOSE exec -T keycloak /opt/keycloak/bin/kcadm.sh "$@"; }
+
+echo "[*] Authentification kcadm..."
+kc config credentials --server http://localhost:8080 --realm master \
+  --user "{{ keycloak_admin_user }}" --password "{{ keycloak_admin_password }}"
+
+# ---------------------------------------------------------------------------
+# 1. Fédération LDAP (read-only : on n'importe pas les userPassword V1 faibles)
+# ---------------------------------------------------------------------------
+if [ -z "$(kc get components -r "$REALM" -q name=LDAP-UniCampus --fields id --format csv 2>/dev/null | tr -d '"')" ]; then
+  echo "CREATED: fédération LDAP-UniCampus"
+  kc create components -r "$REALM" \
+    -s name="LDAP-UniCampus" \
+    -s providerId=ldap \
+    -s providerType=org.keycloak.storage.UserStorageProvider \
+    -s 'config.vendor=["other"]' \
+    -s 'config.connectionUrl=["{{ keycloak_ldap_url }}"]' \
+    -s 'config.bindDn=["{{ keycloak_ldap_bind_dn }}"]' \
+    -s 'config.bindCredential=["{{ keycloak_ldap_bind_password }}"]' \
+    -s 'config.usersDn=["{{ keycloak_ldap_users_dn }}"]' \
+    -s 'config.editMode=["READ_ONLY"]' \
+    -s 'config.importEnabled=["true"]' \
+    -s 'config.syncRegistrations=["false"]' \
+    -s 'config.usernameLDAPAttribute=["uid"]' \
+    -s 'config.rdnLDAPAttribute=["uid"]' \
+    -s 'config.uuidLDAPAttribute=["entryUUID"]' \
+    -s 'config.userObjectClasses=["inetOrgPerson"]' \
+    -s 'config.searchScope=["2"]' \
+    -s 'config.trustEmail=["true"]'
+else
+  echo "[=] Fédération LDAP déjà présente."
+fi
+
+# ---------------------------------------------------------------------------
+# 2. Clients OIDC (un par application) — get-or-create + mapper de rôles
+# ---------------------------------------------------------------------------
+create_client() {
+  local cid="$1" secret="$2" redirect="$3" with_mapper="$4"
+  local id
+  id="$(kc get clients -r "$REALM" -q clientId="$cid" --fields id --format csv 2>/dev/null | tr -d '"')"
+  if [ -n "$id" ]; then
+    echo "[=] Client $cid déjà présent."
+    return 0
+  fi
+  echo "CREATED: client OIDC $cid"
+  kc create clients -r "$REALM" \
+    -s clientId="$cid" \
+    -s enabled=true \
+    -s publicClient=false \
+    -s secret="$secret" \
+    -s "redirectUris=[\"$redirect\"]" \
+    -s standardFlowEnabled=true \
+    -s directAccessGrantsEnabled=true
+  if [ "$with_mapper" = "yes" ]; then
+    id="$(kc get clients -r "$REALM" -q clientId="$cid" --fields id --format csv | tr -d '"')"
+    kc create "clients/$id/protocol-mappers/models" -r "$REALM" \
+      -s name="roles-mapper" \
+      -s protocol="openid-connect" \
+      -s protocolMapper="oidc-usermodel-realm-role-mapper" \
+      -s 'config."claim.name"="roles"' \
+      -s 'config."jsonType.label"="String"' \
+      -s 'config."id.token.claim"="true"' \
+      -s 'config."access.token.claim"="true"' \
+      -s 'config."multivalued"="true"'
+  fi
+}
+
+create_client "moodle-client"    "{{ oidc_secrets.moodle }}"    "https://moodle.unicampus.fr/auth/oidc/"               "no"
+create_client "roundcube-client" "{{ oidc_secrets.roundcube }}" "https://mail.unicampus.fr/index.php/login/oauth"      "no"
+create_client "webrh-client"     "{{ oidc_secrets.webrh }}"     "https://webrh.unicampus.fr/auth-callback"             "yes"
+create_client "teleport-bastion" "{{ oidc_secrets.teleport }}"  "https://bastion.unicampus.fr/v1/webapi/oidc/callback" "yes"
+
+# ---------------------------------------------------------------------------
+# 3. MFA : l'action requise « Configure OTP » est native/active. L'enrôlement
+#    par groupe (Equipe_DSI, etc.) reste à activer côté console (cf. keycloak.md
+#    §MFA) pour ne pas verrouiller le compte admin pendant le provisioning.
+# ---------------------------------------------------------------------------
+echo "[*] Configuration Keycloak terminée."
+touch "{{ keycloak_configured_marker }}"
