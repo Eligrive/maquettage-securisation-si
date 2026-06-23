@@ -20,7 +20,24 @@
 #
 # (Topologie FLAT V1 historique : inventory/hosts.flat.ini + rôle fw_legacy.)
 #
-# Tags : fw | ldap | mail | db-rh | web-rh | moodle | calc | vpn | postes.
+# Tags base : fw | ldap | mail | db-rh | web-rh | moodle | calc | vpn | postes.
+# Tags V2 IAM/PKI : pki | certs | ca | dns | proxy | sso | keycloak | roundcube |
+#                   bastion | teleport | iam.
+#   ex. ne (re)jouer que la PKI + le reverse proxy : --tags pki,proxy
+#       ne reconfigurer que le SSO Keycloak         : --tags keycloak
+#
+# Pré-requis V2 IAM/PKI : openssl sur le contrôleur (génération des certificats).
+
+# --- 0. PKI interne (contrôleur) : CA racine/intermédiaire + certs serveurs ---
+#  Génère la chaîne de confiance et les certificats AVANT tout déploiement TLS
+#  (reverse proxy, LDAPS, SMTPS, bastion). Tourne sur le contrôleur, idempotent.
+- name: PKI interne UniCampus (génération des certificats)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false # génération côté contrôleur sous ansible/pki/ (pas besoin de root)
+  roles:
+    - { role: pki, tags: [pki, certs] }
 
 # --- Attente de joignabilité (hors postes : DHCP/best-effort) ----------------
 - name: Attendre que les hôtes de la maquette soient joignables en SSH
@@ -33,12 +50,24 @@
       tags: [always]
 
 # --- 1. Pare-feu central EN PREMIER (gateway de tous les VLAN, active l'egress) -
-- name: Pare-feu central segmenté (uc-srv-firewall)
+#  Héberge aussi le reverse proxy nginx V2 (terminaison TLS PKI + SSO).
+- name: Pare-feu central segmenté (uc-srv-firewall) + reverse proxy
   hosts: firewall
   gather_facts: true
   roles:
     - { role: common, tags: [common, fw] }
     - { role: fw_central, tags: [fw] }
+    - { role: reverse_proxy, tags: [proxy, iam] }
+
+# --- 1bis. Base client V2 : confiance PKI + résolution interne (split DNS) -----
+#  Tous les serveurs approuvent la CA racine et résolvent *.unicampus.fr vers le
+#  reverse proxy. Indispensable au back-channel OIDC (apps -> sso.unicampus.fr).
+- name: Base client V2 (ancre de confiance PKI + split DNS)
+  hosts: maquette:!postes
+  gather_facts: false
+  roles:
+    - { role: ca_trust, tags: [pki, ca, iam] }
+    - { role: unicampus_dns, tags: [dns, iam] }
 
 # --- 2. Services applicatifs --------------------------------------------------
 - name: Annuaire LDAP
@@ -75,6 +104,21 @@
     - { role: loot, tags: [loot, mail] }
     - { role: srv_mail, tags: [mail] }
 
+# --- Lot V2 IAM : SSO Keycloak (APRÈS l'annuaire LDAP, qu'il fédère) ----------
+- name: SSO Keycloak (Docker — fédération LDAP + clients OIDC)
+  hosts: srv_sso
+  gather_facts: true
+  roles:
+    - { role: common, tags: [common, sso] }
+    - { role: keycloak, tags: [sso, keycloak, iam] }
+
+- name: Webmail Roundcube (front IMAP/SMTP de uc-srv-mail + OIDC)
+  hosts: srv_roundcube
+  gather_facts: true
+  roles:
+    - { role: common, tags: [common, roundcube] }
+    - { role: srv_roundcube, tags: [roundcube, iam] }
+
 - name: LMS Moodle (Apache/PHP/MariaDB)
   hosts: srv_moodle
   gather_facts: true
@@ -100,6 +144,21 @@
     - { role: common, tags: [common, vpn] }
     - { role: vpn_legacy, tags: [vpn] }
 
+# --- Lot V2 IAM : bastion Teleport (APRÈS Keycloak, dont il consomme l'OIDC) --
+- name: Bastion Teleport (auth + proxy + connecteur OIDC Keycloak)
+  hosts: srv_bastion
+  gather_facts: true
+  roles:
+    - { role: common, tags: [common, bastion] }
+    - { role: bastion, tags: [bastion, iam] }
+
+# Agents Teleport sur les nœuds infra (SSH) et bases (DB) — APRÈS le bastion.
+- name: Agents Teleport (raccordement des nœuds infra et bases au bastion)
+  hosts: teleport_agents
+  gather_facts: true
+  roles:
+    - { role: teleport_agent, tags: [teleport, iam] }
+
 # --- 3. Postes clients (best-effort : DHCP, BYOD non administrés) -------------
 - name: Postes clients (étudiant / enseignant / DSI)
   hosts: postes
@@ -110,3 +169,6 @@
     - { role: maquette_accounts, tags: [accounts, postes] }
     - { role: loot, tags: [loot, postes] }
     - { role: poste, tags: [postes] }
+    # V2 : les postes approuvent la CA interne et résolvent *.unicampus.fr.
+    - { role: ca_trust, tags: [pki, ca, iam] }
+    - { role: unicampus_dns, tags: [dns, iam] }
