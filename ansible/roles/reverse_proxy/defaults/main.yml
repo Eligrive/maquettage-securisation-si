@@ -1,0 +1,16 @@
+---
+# ============================================================================
+#  Rôle reverse_proxy — nginx (terminaison TLS PKI) sur le firewall central
+# ============================================================================
+#  Reprend V2_scripts/reverse_proxy.sh : un vhost HTTPS par service web, le TLS
+#  est terminé ici (certificat multi-SAN de la PKI interne) puis relayé en HTTP
+#  vers les backends internes. Hébergé SUR le firewall (choix d'archi) : il a un
+#  pied sur chaque VLAN et joint donc tous les backends en local.
+
+# Certificat multi-SAN servi par nginx (issu du rôle pki : reverse-proxy.*).
+reverse_proxy_cert_name: "reverse-proxy"
+reverse_proxy_cert_path: "/etc/ssl/certs/unicampus-proxy.fullchain.crt"
+reverse_proxy_key_path: "/etc/ssl/private/unicampus-proxy.key"
+
+# Taille max des corps de requête (uploads Moodle / pièces jointes webmail).
+reverse_proxy_client_max_body_size: "200m"
