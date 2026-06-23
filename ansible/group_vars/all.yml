@@ -64,9 +64,36 @@ keycloak_internal_ip: "192.168.107.3"
 keycloak_admin_user: "admin"
 keycloak_admin_password: "Mon_mot_de_passe"
 keycloak_db_password: "password"
-# Les scripts de référence créent clients/fédération dans le realm master.
-keycloak_realm: "master"
+
+# Realm APPLICATIF dédié : utilisateurs (fédérés LDAP), clients OIDC, rôles et
+# groupes RBAC y vivent. Le realm `master` est STRICTEMENT réservé à
+# l'administration technique de Keycloak (login de l'admin via kcadm/console).
+keycloak_realm: "unicampus"
+keycloak_admin_realm: "master" # realm d'authentification de l'admin (kcadm)
 keycloak_issuer_url: "https://sso.unicampus.fr/realms/{{ keycloak_realm }}"
+
+# Rôles realm (RBAC) consommés par les mappers OIDC, Teleport (claims_to_roles)
+# et le portail Web RH (REQUIRED_REALM_ROLE). cf. matrice docs/V2/IAM.md.
+keycloak_realm_roles:
+  - Etudiant
+  - Professeur
+  - Chercheur
+  - Admin_DSI
+  - Admin_DBA
+  - Admin_RH
+  - Externe
+
+# Groupes (organigramme) -> rôle realm assigné automatiquement aux membres.
+# Le rattachement des utilisateurs fédérés aux groupes se fait en console
+# (ou via un group-mapper LDAP). cf. docs/V2/keycloak.md (§Groups).
+keycloak_groups:
+  - { name: "Etudiants", role: "Etudiant" }
+  - { name: "Professeurs", role: "Professeur" }
+  - { name: "Chercheurs", role: "Chercheur" }
+  - { name: "Equipe_DSI", role: "Admin_DSI" }
+  - { name: "Equipe_DBA", role: "Admin_DBA" }
+  - { name: "Equipe_RH", role: "Admin_RH" }
+  - { name: "Intervenants_Externes", role: "Externe" }
 
 # Fédération LDAP (read-only : on n'importe pas les userPassword V1 faibles ;
 # reset forcé au 1er login via l'action requise UPDATE_PASSWORD).

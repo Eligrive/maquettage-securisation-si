@@ -1,23 +1,53 @@
 #!/bin/bash
 # {{ ansible_managed }}
 # ============================================================================
-#  Configuration Keycloak — fédération LDAP + clients OIDC (idempotent)
+#  Configuration Keycloak — realm applicatif unicampus (idempotent)
 # ============================================================================
+#  Crée le realm dédié {{ keycloak_realm }} (le realm master reste réservé à
+#  l'admin), ses rôles RBAC, ses groupes, la fédération LDAP et les clients OIDC.
 #  Reprend V2_scripts/setup_ldap.sh + setup_keycloak_client.sh, rendu rejouable
 #  (get-or-create). Émet « CREATED ... » à chaque objet créé (Ansible changed_when).
-set -euo pipefail
+set -uo pipefail
 
 COMPOSE="docker compose -f {{ keycloak_dir }}/docker-compose.yml"
 REALM="{{ keycloak_realm }}"
 
 kc() { $COMPOSE exec -T keycloak /opt/keycloak/bin/kcadm.sh "$@"; }
 
-echo "[*] Authentification kcadm..."
-kc config credentials --server http://localhost:8080 --realm master \
+echo "[*] Authentification kcadm (realm admin: {{ keycloak_admin_realm }})..."
+kc config credentials --server http://localhost:8080 --realm {{ keycloak_admin_realm }} \
   --user "{{ keycloak_admin_user }}" --password "{{ keycloak_admin_password }}"
 
 # ---------------------------------------------------------------------------
-# 1. Fédération LDAP (read-only : on n'importe pas les userPassword V1 faibles)
+# 1. Realm applicatif dédié (le master n'est utilisé que par l'admin)
+# ---------------------------------------------------------------------------
+if kc get "realms/$REALM" >/dev/null 2>&1; then
+  echo "[=] Realm $REALM déjà présent."
+else
+  echo "CREATED: realm $REALM"
+  kc create realms -s realm="$REALM" -s enabled=true \
+    -s displayName="UniCampus+" -s loginWithEmailAllowed=true
+fi
+
+# ---------------------------------------------------------------------------
+# 2. Rôles realm (RBAC) — cf. matrice IAM
+# ---------------------------------------------------------------------------
+{% for role in keycloak_realm_roles %}
+kc create roles -r "$REALM" -s name="{{ role }}" 2>/dev/null \
+  && echo "CREATED: role {{ role }}" || true
+{% endfor %}
+
+# ---------------------------------------------------------------------------
+# 3. Groupes (organigramme) + assignation du rôle realm
+# ---------------------------------------------------------------------------
+{% for g in keycloak_groups %}
+kc create groups -r "$REALM" -s name="{{ g.name }}" 2>/dev/null \
+  && echo "CREATED: group {{ g.name }}" || true
+kc add-roles -r "$REALM" --gname "{{ g.name }}" --rolename "{{ g.role }}" 2>/dev/null || true
+{% endfor %}
+
+# ---------------------------------------------------------------------------
+# 4. Fédération LDAP (read-only : on n'importe pas les userPassword V1 faibles)
 # ---------------------------------------------------------------------------
 if [ -z "$(kc get components -r "$REALM" -q name=LDAP-UniCampus --fields id --format csv 2>/dev/null | tr -d '"')" ]; then
   echo "CREATED: fédération LDAP-UniCampus"
@@ -44,7 +74,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 2. Clients OIDC (un par application) — get-or-create + mapper de rôles
+# 5. Clients OIDC (un par application) — get-or-create + mapper de rôles
 # ---------------------------------------------------------------------------
 create_client() {
   local cid="$1" secret="$2" redirect="$3" with_mapper="$4"
@@ -83,9 +113,9 @@ create_client "webrh-client"     "{{ oidc_secrets.webrh }}"     "https://webrh.u
 create_client "teleport-bastion" "{{ oidc_secrets.teleport }}"  "https://bastion.unicampus.fr/v1/webapi/oidc/callback" "yes"
 
 # ---------------------------------------------------------------------------
-# 3. MFA : l'action requise « Configure OTP » est native/active. L'enrôlement
-#    par groupe (Equipe_DSI, etc.) reste à activer côté console (cf. keycloak.md
-#    §MFA) pour ne pas verrouiller le compte admin pendant le provisioning.
+# 6. MFA : l'action requise « Configure OTP » est native/active dans le realm.
+#    L'enrôlement par groupe (Equipe_DSI, etc.) reste à activer côté console
+#    (cf. keycloak.md §MFA) pour ne pas verrouiller les comptes pendant le setup.
 # ---------------------------------------------------------------------------
-echo "[*] Configuration Keycloak terminée."
+echo "[*] Configuration Keycloak terminée (realm $REALM)."
 touch "{{ keycloak_configured_marker }}"
