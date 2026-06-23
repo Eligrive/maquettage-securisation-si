@@ -1,0 +1,25 @@
+---
+# ============================================================================
+#  Rôle ca_trust — distribution de l'ancre de confiance PKI interne
+# ============================================================================
+#  Installe le certificat racine UniCampus dans le magasin système des hôtes
+#  pour que les connexions TLS internes (HTTPS reverse proxy, LDAPS, SMTPS,
+#  back-channel OIDC vers sso.unicampus.fr) soient validées SANS avertissement.
+#  cf. docs/V2/PKI.md §6 (« Distribution de la Confiance sur les Postes »).
+#
+#  Dépend du rôle pki (le rootCA.crt doit exister sous {{ pki_dir }} sur le
+#  contrôleur). Idempotent : update-ca-certificates seulement si le fichier change.
+
+- name: Déposer le certificat racine UniCampus dans le magasin local
+  ansible.builtin.copy:
+    src: "{{ pki_dir }}/rootCA.crt"
+    dest: /usr/local/share/ca-certificates/unicampus-root.crt
+    owner: root
+    group: root
+    mode: "0644"
+  register: _ca_copy
+
+- name: Mettre à jour le magasin de certificats système
+  ansible.builtin.command: update-ca-certificates
+  when: _ca_copy is changed
+  changed_when: _ca_copy is changed
