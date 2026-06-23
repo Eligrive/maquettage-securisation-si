@@ -95,3 +95,30 @@ sudo tctl create -f role-chercheur.yaml
 rm oidc-keycloak.yaml role-admin-dsi.yaml role-admin-dba.yaml role-chercheur.yaml
 
 echo "✅ Pont OIDC établi avec succès."
+
+# ==========================================
+# 6. GÉNÉRATION AUTOMATISÉE DU TOKEN DE JOINTURE
+# ==========================================
+echo "🎟️ Génération du jeton de jointure pour les agents..."
+
+# On définit une chaîne forte et unique pour notre maquette
+SHARED_JOIN_TOKEN="Token_De_Jointure_Teleport_V2_UniCampus_2026"
+
+cat << EOF > teleport-join-token.yaml
+kind: token
+version: v2
+metadata:
+  name: "$SHARED_JOIN_TOKEN"
+spec:
+  # On autorise ce token à enregistrer des serveurs (Node) et des bases de données (Db)
+  roles: [Node, Db]
+  join_method: token
+  # Valable 2 heures, idéal pour le temps du provisionnement de la maquette
+  ttl: 2h 
+EOF
+
+# Injection du token dans le registre du Bastion
+sudo tctl create -f teleport-join-token.yaml
+rm teleport-join-token.yaml
+
+echo "✅ Le token de jointure automatique est actif sur le Bastion."
