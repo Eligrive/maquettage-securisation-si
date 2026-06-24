@@ -132,7 +132,7 @@ ansible_provision:
   needs:
     - terraform_apply
   before_script:
-    - apk add --no-cache ansible openssh-client bash coreutils
+    - apk add --no-cache ansible openssh-client bash coreutils openssl
   script:
     # 1. Récupérer les outputs Terraform (Floating IPs) via le state GitLab
     - cd "${TF_ROOT}"
