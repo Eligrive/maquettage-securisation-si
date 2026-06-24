@@ -133,13 +133,25 @@
     mode: "0644"
   notify: restart slapd
 
+# /etc/ssl/private est en 0700 root:root sur l'image (pas de paquet/groupe ssl-cert) :
+# openldap ne peut pas y entrer. Contrairement à postfix/dovecot/nginx qui lisent
+# leur clé en root, slapd tourne en openldap et charge la clé via ldapmodify -> il
+# lui faut un répertoire traversable. On dédie /etc/ldap/tls (owner openldap).
+- name: LDAPS — répertoire TLS dédié, lisible par openldap
+  ansible.builtin.file:
+    path: /etc/ldap/tls
+    state: directory
+    owner: openldap
+    group: openldap
+    mode: "0750"
+
 - name: LDAPS — déposer la clé privée (lisible par openldap)
   ansible.builtin.copy:
     src: "{{ pki_dir }}/ldap.key"
-    dest: /etc/ssl/private/ldap.key
+    dest: /etc/ldap/tls/ldap.key
     owner: openldap
     group: openldap
-    mode: "0640"
+    mode: "0600"
   notify: restart slapd
 
 - name: LDAPS — vérifier si la conf TLS est déjà appliquée
@@ -161,7 +173,7 @@
     olcTLSCertificateFile: /etc/ssl/certs/ldap.fullchain.crt
     -
     replace: olcTLSCertificateKeyFile
-    olcTLSCertificateKeyFile: /etc/ssl/private/ldap.key
+    olcTLSCertificateKeyFile: /etc/ldap/tls/ldap.key
     EOF
   when: _ldaps_set.rc != 0
   notify: restart slapd
