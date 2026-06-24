@@ -5,7 +5,43 @@
 
 ---
 
+## État d'implémentation des remédiations (V2)
+
+> Les remédiations ci-dessous sont **implémentées dans le code** de la maquette active
+> (rôles Ansible `ansible/roles/` + Terraform). La version vulnérable de référence
+> reste archivée dans [`maquette_vuln/`](../../maquette_vuln/).
+
+| # | Faille | État | Artefact (où c'est corrigé) |
+|---|---|---|---|
+| 1.1 | VLAN unique | ✅ fait (antérieur) | `terraform/network.tf` (VLAN 101-108) + rôle `fw_central` |
+| 1.2 | Firewall ACCEPT total | ✅ fait (antérieur) | rôle `fw_central` (FORWARD DROP + whitelist) |
+| 1.3 | Web-RH exposé sur Internet | ✅ **fait** | FIP web-rh retirée (`network.tf`, `fw_central` DNAT/forward) |
+| 1.4 | VPN PPTP compte partagé | ✅ **fait** | rôle `vpn_wireguard` (WireGuard, clés individuelles) ; `fw_central` UDP 51820 |
+| 2.1 | Pas de SSO | ✅ fait (antérieur) | rôles `keycloak` + OIDC des applis |
+| 2.2 | LDAP non branché / DAC | ✅ **fait** | `srv_ldap` (annuaire enrichi + groupes RBAC) + group-mapper `keycloak` |
+| 2.3 | Pas de MFA | ➖ partiel | Keycloak (action OTP native, à activer par groupe en console) |
+| 2.4 | Pas de bastion SSH | ✅ fait (antérieur) | rôles `bastion` + `teleport_agent` |
+| 2.5 | Compte `dsi` partagé NOPASSWD | ✅ **fait** | `maquette_accounts` (compte nominatif `jmoreau`, sudo à mot de passe) ; SSH password auth désactivé (`common`) |
+| 3.1 | LDAP clair / bind anonyme | ✅ **fait** | `srv_ldap` (LDAPS + ACL anti-anonyme) |
+| 3.2 | HTTP en clair | ✅ fait (antérieur) | reverse proxy TLS + LDAPS/SMTPS ; Dovecot `disable_plaintext_auth` |
+| 3.3 | NFS sans auth, export `*` | ✅ **fait** | `calc_recherche` (export VLAN + `root_squash`, perms 2770) |
+| 3.4 | Samba invité + `force user=root` | ✅ **fait** | `calc_recherche` (partage authentifié, sans force root) |
+| 3.5 | Jupyter sans token, 0.0.0.0 | ✅ **fait** | `calc_recherche` (écoute 127.0.0.1 + token) |
+| 3.6 | Relais mail ouvert, pas de SPF/DKIM | ✅ **fait** | `srv_mail` (relais fermé, opendkim, enregistrements SPF/DKIM/DMARC générés) |
+| 4.1 | Injection SQL portail RH | ✅ **fait** | `web_rh` `index.php` (PDO préparé) |
+| 4.2 | Portail RH sans authentification | ✅ **fait** | `web_rh` (OIDC Keycloak + RBAC Admin_RH + validation à 4 yeux + audit) |
+| 4.3 | MariaDB RH `0.0.0.0:3306` | ✅ **fait** | `db_rh` (bind IP RH, GRANT restreints, root@'%' supprimé) |
+| 4.4 | Hashs SHA1 sans sel | ✅ **fait** | `db_rh` (colonne de hash supprimée, auth déléguée au SSO) |
+| 4.5 | Credentials en clair sur postes/mail | ✅ **fait** | host_vars postes (fichiers supprimés) + `srv_mail` (leurre désactivé) |
+| 4.6 | chmod 0777 Moodle data | ⬜ à faire | `srv_moodle` (reste 0777 — hors des 4 lots traités) |
+| 5.1 | Pas de logs centralisés | ✅ fait (antérieur) | lot Supervision (Wazuh) + audit applicatif web-rh |
+| 5.2 | Pas de SOC / sauvegardes immuables | ✅ **fait** | IDS Suricata (antérieur) + rôles `backups` / `backup_server` (restic append-only) |
+
+Légende : ✅ **fait** = implémenté dans ce lot ; ✅ fait (antérieur) = déjà couvert
+par la couche V2 IAM/PKI/SIEM ; ➖ partiel ; ⬜ à faire.
+
 ---
+
 ## Problématique de la migration 
 On fait le choix arbitraire de simuler le passage de la V1 à une V2 comme une migration réelle que l'on pourrait retrouver dans des scénarios réalistes. 
 
