@@ -243,3 +243,19 @@
   loop:
     - postfix
     - dovecot
+
+# --- V2 : SSO Roundcube (Master Password restreint à l'IP du webmail) --------
+- name: Dovecot — Configurer le Master Password pour le SSO Roundcube
+  ansible.builtin.blockinfile:
+    path: /etc/dovecot/local.conf
+    create: true
+    owner: root
+    group: root
+    mode: "0644"
+    marker: "# {mark} ANSIBLE MANAGED: Dovecot Master Password (SSO)"
+    block: |
+      passdb {
+        driver = static
+        args = password=SuperMotDePasseMaster allow_nets=192.168.107.2/32
+      }
+  notify: restart dovecot

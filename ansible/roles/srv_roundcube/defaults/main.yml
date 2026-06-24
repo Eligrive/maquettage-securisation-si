@@ -19,6 +19,6 @@ roundcube_webroot: "/var/lib/roundcube"
 roundcube_config: "/etc/roundcube/config.inc.php"
 
 # Plugin OIDC (dépôt repris de V2_scripts/install_oidc_roundcube.sh).
-roundcube_oidc_plugin_repo: "https://github.com/mstahv/roundcube-oidc-login.git"
+roundcube_oidc_plugin_repo: "https://github.com/pulsejet/roundcube-oidc.git"
 roundcube_oidc_client_id: "roundcube-client"
-roundcube_oidc_redirect_uri: "https://mail.unicampus.fr/index.php/login/oauth"
+roundcube_oidc_redirect_uri: "https://mail.unicampus.fr/"
