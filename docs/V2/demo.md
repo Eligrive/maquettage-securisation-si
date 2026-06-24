@@ -19,7 +19,11 @@ nmap nmap -sP 192.168.101.0/24
 ```
 
 * tests de SSO depuis une machine (connexion à différents services avec une seule session)
-Connexion aux différentes ressources 
+```
+Connexion depuis un poste sur le moodle et le mail : 
+- mail.unicampus.fr/roundcube
+- moodle.unicampus.fr
+```Connexion aux différentes ressources 
 
 * SSH depuis les machines ne doivent pas fonctionner
 
@@ -42,5 +46,13 @@ psql -h 192.168.102.1 -U postgres -d lrid_results
 * Checker le bastion (Teleport ?)
 
 * Accès au SIEM, voir le dashboard, les logs, les alertes
+
+```
+Connection Par le navigateur depuis des postes dans le reseau admin ou par la machine directement. 
+port : 443
+Dashboard : https://192.168.109.1, 
+ou https://localhost
+utilisateur admin
+```
 
 * Passage automatique de HTTP à HTTPS par le DNS
