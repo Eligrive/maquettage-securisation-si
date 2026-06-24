@@ -135,8 +135,8 @@
   roles:
     - { role: common, tags: [common, moodle] }
     - { role: maquette_accounts, tags: [accounts, moodle] }
-    - { role: loot, tags: [loot, moodle] }
-    - { role: srv_moodle, tags: [moodle] }
+    - { role: srv_moodle, tags: [moodle] }   # <--- Moodle s'installe d'abord
+    - { role: loot, tags: [loot, moodle] }   # <--- Les leurres sont déposés ensuite
 
 - name: Calcul recherche (NFS/Samba/PostgreSQL/Jupyter)
   hosts: calc_recherche
