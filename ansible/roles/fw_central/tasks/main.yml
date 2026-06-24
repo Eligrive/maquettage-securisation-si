@@ -9,20 +9,27 @@
     fail_msg: "Le rôle fw_central cible Ubuntu/Debian."
 
 # --- Détection de l'interface transit (porte {{ fw_transit_ip }}) ------------
-- name: Détecter l'interface de transit
-  ansible.builtin.shell: >-
-    ip -o -4 addr show | awk '/{{ fw_transit_ip | replace('.', '\\.') }}\// {print $2; exit}'
-  register: _fw_transit_if
-  changed_when: false
+# On lit les FAITS Ansible plutôt que de parser `ip` via le shell : `ip` vit
+# dans /usr/sbin, souvent ABSENT du PATH non interactif d'Ansible. La commande
+# marche en SSH manuel / cloud-init (root, PATH complet) mais renvoie vide ici
+# (« ip: command not found » -> awk lit du vide -> rc 0, stdout vide). Les faits
+# réseau collectés au Gathering Facts sont fiables et n'ont pas cette fragilité.
+- name: Identifier l'interface de transit (porte {{ fw_transit_ip }})
+  ansible.builtin.set_fact:
+    fw_transit_if: >-
+      {{ ansible_facts.interfaces
+         | map('extract', ansible_facts)
+         | selectattr('ipv4', 'defined')
+         | selectattr('ipv4.address', 'equalto', fw_transit_ip)
+         | map(attribute='device')
+         | first | default('') }}
 
 - name: Vérifier que l'interface transit est identifiée
   ansible.builtin.assert:
-    that: _fw_transit_if.stdout | length > 0
-    fail_msg: "Interface transit non détectée (cloud-init a-t-il démarré le réseau ?)."
-
-- name: Mémoriser le nom de l'interface transit
-  ansible.builtin.set_fact:
-    fw_transit_if: "{{ _fw_transit_if.stdout }}"
+    that: fw_transit_if | length > 0
+    fail_msg: >-
+      Interface transit non détectée : aucune interface ne porte {{ fw_transit_ip }}
+      (cloud-init a-t-il démarré le réseau ?).
 
 # --- IP forwarding -----------------------------------------------------------
 - name: Activer le forwarding IPv4 et désactiver les redirects (sysctl.d)

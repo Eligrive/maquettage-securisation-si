@@ -28,16 +28,13 @@
   changed_when: false
 
 # --- Détection de l'interface de sortie (masquerade des clients VPN) ---------
-- name: Détecter l'interface de sortie (route par défaut)
-  ansible.builtin.shell:
-    cmd: "ip -o -4 route show to default | awk '{print $5; exit}'"
-  register: _wg_def_if
-  changed_when: false
-  when: wg_egress_interface | length == 0
-
-- name: Mémoriser l'interface de sortie
+# Via les faits Ansible (default_ipv4) : `ip` vit dans /usr/sbin, souvent hors
+# du PATH non interactif d'Ansible -> la détection par shell reviendrait vide.
+- name: Mémoriser l'interface de sortie (override explicite, sinon route par défaut)
   ansible.builtin.set_fact:
-    wg_egress_if: "{{ wg_egress_interface if (wg_egress_interface | length > 0) else _wg_def_if.stdout }}"
+    wg_egress_if: >-
+      {{ wg_egress_interface if (wg_egress_interface | length > 0)
+         else (ansible_facts.default_ipv4.interface | default('')) }}
 
 # --- Clé privée du serveur (générée une seule fois, idempotent) --------------
 - name: Vérifier la présence de la clé privée serveur
