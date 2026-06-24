@@ -13,6 +13,7 @@ ldapsearch -x -H ldaps://uc-srv-ldap:636 -b "dc=unicampus,dc=fr" -D "cn=dsi,ou=a
 ```bash
 # Pour étu / prof
 nmap nmap -sP 192.168.101.0/24
+nmap -Pn 192.168.104.0/24
 ```
 
 * tests de SSO depuis une machine (connexion à différents services avec une seule session)
