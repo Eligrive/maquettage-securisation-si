@@ -1,8 +1,5 @@
-commandes pour se connecter à différents postes (admin, élève, prof)
+Tests à montrer/vérifier : 
 
-connexion ssh impossible même depuis une machine d'un même sous-réseau
-
-tests à montrer/vérifier : 
 * connexion au LDAP en anonyme -> impossible ou en authentifié -> profil dsi, connexion en ??? -> port spécial ?
 ```bash
 # Test en anonyme
