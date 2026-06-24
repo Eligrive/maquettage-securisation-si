@@ -1,8 +1,5 @@
-commandes pour se connecter à différents postes (admin, élève, prof)
+Tests à montrer/vérifier : 
 
-connexion ssh impossible même depuis une machine d'un même sous-réseau
-
-tests à montrer/vérifier : 
 * connexion au LDAP en anonyme -> impossible ou en authentifié -> profil dsi, connexion en ??? -> port spécial ?
 ```bash
 # Test en anonyme
@@ -16,6 +13,7 @@ ldapsearch -x -H ldaps://uc-srv-ldap:636 -b "dc=unicampus,dc=fr" -D "cn=dsi,ou=a
 ```bash
 # Pour étu / prof
 nmap nmap -sP 192.168.101.0/24
+nmap -Pn 192.168.104.0/24
 ```
 
 * tests de SSO depuis une machine (connexion à différents services avec une seule session)
@@ -23,12 +21,25 @@ nmap nmap -sP 192.168.101.0/24
 Connexion depuis un poste sur le moodle et le mail : 
 - mail.unicampus.fr/roundcube
 - moodle.unicampus.fr
+```Connexion aux différentes ressources 
+
+* SSH depuis les machines ne doivent pas fonctionner
+
+```bash 
+# Pour la connexion au ldap 
+ssh -o PreferredAuthentications=password -o PubkeyAuthentication=no root@192.168.104.1
 ```
-* SSH depuis les machines ne doivent pas fonctionner -> les ports SSH des machines sont fermés
 
 Moodle a une IP flottante publique -> accessible depuis l'extérieur
 
 * Connexion aux DB impossible SAUF par le bastion
+```bash
+# rh 
+mysql -h 192.168.104.3 -u root -p
+
+#base recherche
+psql -h 192.168.102.1 -U postgres -d lrid_results
+```
 
 * Checker le bastion (Teleport ?)
 ```
@@ -46,3 +57,6 @@ utilisateur admin
 ```
 
 * Passage automatique de HTTP à HTTPS par le DNS
+  
+* Test RBAC : 
+Il faut tenter la connexion a web rh avec un compte étudiant 
