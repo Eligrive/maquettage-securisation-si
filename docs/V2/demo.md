@@ -5,6 +5,15 @@ connexion ssh impossible même depuis une machine d'un même sous-réseau
 tests à montrer/vérifier : 
 * connexion au LDAP en anonyme -> impossible ou en authentifié -> profil dsi, connexion en ??? -> port spécial ?
 
+Test en anonyme : 
+```bash
+# Test en anonyme
+ldapsearch -x -H ldaps://uc-srv-ldap:636 -b "dc=unicampus,dc=fr"
+
+# Test en authentifié
+ldapsearch -x -H ldaps://uc-srv-ldap:636 -b "dc=unicampus,dc=fr" -D "cn=dsi,ou=admin,dc=unicampus,dc=fr" -W
+``` 
+
 * nmap depuis le poste étudiant pour montrer l'efficacité du firewall et de la segmentation
 
 * tests de SSO depuis une machine (connexion à différents services avec une seule session)
