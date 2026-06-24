@@ -1,9 +1,12 @@
 ---
 # ============================================================================
-#  Rôle db_rh — base RH MariaDB (ex scripts/db-rh.sh)
+#  Rôle db_rh — base RH MariaDB (ex scripts/db-rh.sh) — V2 DURCIE
 # ============================================================================
-# Écoute sur 0.0.0.0, root distant, comptes hashés SHA1, mots de passe faibles
-# (vulns volontaires §4.3/§6.2).
+# Remédiation §4.3 : écoute restreinte à l'IP du VLAN RH (plus de 0.0.0.0),
+# compte applicatif rhapp restreint à l'IP du front + moindre privilège, plus de
+# root distant (cf. files/schema.sql). §4.4 : plus de hash en base (auth -> SSO).
+# En complément, le pare-feu central (DROP par défaut) interdit l'accès au port
+# 3306 depuis les autres VLAN ; seul le front web-rh (même VLAN RH) l'atteint.
 
 - name: Installer mariadb-server
   ansible.builtin.apt:
@@ -15,11 +18,11 @@
   register: _apt_mariadb
   until: _apt_mariadb is succeeded
 
-- name: Écoute sur toutes les interfaces (vuln volontaire)
+- name: Écoute restreinte à l'IP du VLAN RH (remédiation §4.3)
   ansible.builtin.lineinfile:
     path: /etc/mysql/mariadb.conf.d/50-server.cnf
     regexp: '^\s*bind-address\s*='
-    line: "bind-address = 0.0.0.0"
+    line: "bind-address = {{ dbrh_bind_address }}"
   notify: restart mariadb
 
 - name: Activer et démarrer MariaDB

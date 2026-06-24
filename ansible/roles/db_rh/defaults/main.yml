@@ -1,0 +1,10 @@
+---
+# ============================================================================
+#  Rôle db_rh — base RH MariaDB (V2 durcie)
+# ============================================================================
+
+# Adresse d'écoute de MariaDB. Remédiation §4.3 : on n'écoute QUE sur l'IP du
+# VLAN RH (et non 0.0.0.0). Le front web-rh (192.168.104.2), sur le même VLAN,
+# atteint la base ; tout autre VLAN est bloqué par le DROP par défaut du pare-feu
+# central. Surcharge possible par host_vars (ex. 127.0.0.1 si colocalisation).
+dbrh_bind_address: "192.168.104.3"
