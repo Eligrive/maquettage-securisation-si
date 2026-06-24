@@ -1,15 +1,22 @@
 ---
 # ============================================================================
-#  Rôle web_rh — portail RH Apache/PHP (SQLi volontaire)
+#  Rôle web_rh — portail RH Apache/PHP — V2 DURCIE
 # ============================================================================
+#  §4.1 SQLi -> PDO préparé ; §4.2 auth -> SSO Keycloak (OIDC) + RBAC Admin_RH ;
+#  §5.1 audit applicatif ; SO5 -> validation à 4 yeux. Plus de SQLi, plus d'accès
+#  anonyme. cf. templates/index.php.j2.
 
-- name: Installer Apache + PHP (mysqli)
+- name: Installer Apache + PHP (PDO MySQL, cURL, JSON) + Composer
   ansible.builtin.apt:
     name:
       - apache2
       - php
-      - php-mysqli
+      - php-mysql # fournit pdo_mysql
+      - php-curl # back-channel OIDC
+      - php-json
+      - php-mbstring
       - libapache2-mod-php
+      - composer
     state: present
     update_cache: true
   retries: 3
@@ -17,7 +24,48 @@
   register: _apt_webrh
   until: _apt_webrh is succeeded
 
-- name: Déposer le portail RH (index.php — SQLi par conception)
+# --- Librairie OIDC (jumbojett/openid-connect-php) via Composer --------------
+#  Installée HORS DocumentRoot (/var/www/oidc) pour ne pas exposer vendor/.
+- name: Créer le répertoire de la librairie OIDC
+  ansible.builtin.file:
+    path: "{{ webrh_oidc_dir }}"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: "0755"
+
+- name: Installer la librairie OIDC (jumbojett/openid-connect-php)
+  ansible.builtin.command:
+    cmd: composer require jumbojett/openid-connect-php --no-interaction --no-progress
+    chdir: "{{ webrh_oidc_dir }}"
+    creates: "{{ webrh_oidc_dir }}/vendor/autoload.php"
+  environment:
+    COMPOSER_HOME: "{{ webrh_oidc_dir }}/.composer"
+    COMPOSER_ALLOW_SUPERUSER: "1"
+  retries: 3
+  delay: 10
+  register: _composer_oidc
+  until: _composer_oidc is succeeded
+
+# --- Configuration OIDC (client/secret/issuer + rôle realm requis) ----------
+- name: OIDC — déposer la configuration Keycloak du portail RH
+  ansible.builtin.copy:
+    dest: "{{ webrh_oidc_env }}"
+    owner: www-data
+    group: www-data
+    mode: "0640"
+    content: |
+      # {{ ansible_managed }}
+      OIDC_PROVIDER_URL={{ keycloak_issuer_url }}
+      OIDC_CLIENT_ID=webrh-client
+      OIDC_CLIENT_SECRET={{ oidc_secrets.webrh }}
+      OIDC_REDIRECT_URI=https://webrh.unicampus.fr/auth-callback
+      OIDC_SCOPES=openid profile email
+      # Rôle realm Keycloak requis pour ouvrir une session RH (filtrage applicatif).
+      REQUIRED_REALM_ROLE=Admin_RH
+  no_log: true
+
+- name: Déposer le portail RH durci (index.php — PDO + OIDC + RBAC + 4 yeux)
   ansible.builtin.template:
     src: index.php.j2
     dest: /var/www/html/index.php
@@ -30,30 +78,27 @@
     path: /var/www/html/index.html
     state: absent
 
-# ============================================================================
-#  V2 — SSO Keycloak (OIDC) — cf. V2_scripts/setup_oidc_webrh.sh
-# ============================================================================
-#  Le portail RH est une appli PHP « maison » : l'intégration OIDC complète
-#  nécessite une librairie (jumbojett/openid-connect-php) côté code. On dépose
-#  ici la configuration OIDC (client/secret/issuer + rôle realm requis) ; elle
-#  est exposée via le reverse proxy en HTTPS (rh/webrh.unicampus.fr).
-- name: OIDC — déposer la configuration Keycloak du portail RH
-  ansible.builtin.copy:
-    dest: /etc/webrh-oidc.env
-    owner: www-data
-    group: www-data
-    mode: "0640"
-    content: |
-      # {{ ansible_managed }}
-      AUTH_METHOD=OIDC
-      OIDC_PROVIDER_URL={{ keycloak_issuer_url }}
-      OIDC_CLIENT_ID=webrh-client
-      OIDC_CLIENT_SECRET={{ oidc_secrets.webrh }}
-      OIDC_REDIRECT_URI=https://webrh.unicampus.fr/auth-callback
-      OIDC_SCOPES=openid profile email
-      # Rôle Keycloak requis pour ouvrir une session RH (filtrage applicatif).
-      REQUIRED_REALM_ROLE=Admin_RH
-  no_log: true
+# --- Vhost Apache : route /auth-callback vers index.php (FallbackResource) ----
+- name: Déposer le vhost RH (FallbackResource -> OIDC)
+  ansible.builtin.template:
+    src: webrh-apache.conf.j2
+    dest: /etc/apache2/sites-available/webrh.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart apache2
+
+- name: Activer le site RH
+  ansible.builtin.command:
+    cmd: a2ensite webrh.conf
+    creates: /etc/apache2/sites-enabled/webrh.conf
+  notify: restart apache2
+
+- name: Désactiver le site Apache par défaut
+  ansible.builtin.command:
+    cmd: a2dissite 000-default.conf
+    removes: /etc/apache2/sites-enabled/000-default.conf
+  notify: restart apache2
 
 - name: Activer et démarrer Apache
   ansible.builtin.systemd:

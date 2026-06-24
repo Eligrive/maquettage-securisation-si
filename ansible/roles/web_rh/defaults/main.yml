@@ -1,11 +1,19 @@
 ---
 # ============================================================================
-#  Rôle web_rh — portail web RH (ex scripts/web-rh.sh)
+#  Rôle web_rh — portail web RH (V2 DURCIE)
 # ============================================================================
-# Apache + PHP interrogeant uc-db-rh. SQLi volontaire, HTTP en clair, aucune
-# auth (un seul rôle implicite, cf. SO3/SO5).
+# Apache + PHP interrogeant uc-db-rh en PDO préparé (§4.1), authentification SSO
+# Keycloak OIDC obligatoire + RBAC Admin_RH (§4.2), audit applicatif (§5.1) et
+# validation à 4 yeux des modifications RIB/salaire (SO5). Servi en HTTPS via le
+# reverse proxy (PKI interne) ; plus exposé en direct sur Internet (§1.3).
 
 webrh_db_host: "192.168.104.3"
 webrh_db_user: "rhapp"
 webrh_db_pass: "rh2024"
 webrh_db_name: "rh"
+
+# Intégration OIDC (client confidentiel Keycloak webrh-client, cf. keycloak role).
+webrh_oidc_env: "/etc/webrh-oidc.env"
+# Emplacement de la librairie OIDC (jumbojett/openid-connect-php) installée par
+# Composer (hors DocumentRoot pour ne pas exposer vendor/).
+webrh_oidc_dir: "/var/www/oidc"
