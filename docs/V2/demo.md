@@ -19,7 +19,11 @@ nmap nmap -sP 192.168.101.0/24
 ```
 
 * tests de SSO depuis une machine (connexion à différents services avec une seule session)
-
+```
+Connexion depuis un poste sur le moodle et le mail : 
+- mail.unicampus.fr/roundcube
+- moodle.unicampus.fr
+```
 * SSH depuis les machines ne doivent pas fonctionner -> les ports SSH des machines sont fermés
 
 Moodle a une IP flottante publique -> accessible depuis l'extérieur
