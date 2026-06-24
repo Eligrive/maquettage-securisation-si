@@ -12,3 +12,8 @@
   ansible.builtin.command:
     cmd: netfilter-persistent save
   changed_when: false
+
+- name: netplan apply
+  ansible.builtin.command:
+    cmd: netplan apply
+  changed_when: false

@@ -31,6 +31,33 @@
       Interface transit non détectée : aucune interface ne porte {{ fw_transit_ip }}
       (cloud-init a-t-il démarré le réseau ?).
 
+# --- Routes parasites des VLAN (le firewall est gateway .254 de chacun) -------
+# Le DHCP de chaque VLAN pousse au firewall un défaut + des /32 DNS + metadata
+# via son propre .254 = lui-même -> trou noir, et les /32 DNS shadowent le défaut.
+# On neutralise l'usage des routes DHCP sur les interfaces VLAN ; seul le transit
+# route. (cf. diagnostic : 8.8.8.8 partait par une interface VLAN au lieu du transit.)
+- name: Lister les interfaces VLAN internes (toutes sauf le transit et lo)
+  ansible.builtin.set_fact:
+    fw_vlan_ifaces: >-
+      {{ ansible_facts.interfaces
+         | map('extract', ansible_facts)
+         | selectattr('ipv4', 'defined')
+         | rejectattr('device', 'equalto', 'lo')
+         | rejectattr('device', 'equalto', fw_transit_if)
+         | map(attribute='device') | sort }}
+
+- name: Override netplan — ignorer les routes DHCP sur les interfaces VLAN
+  ansible.builtin.template:
+    src: uc-fw-noroutes.yaml.j2
+    dest: /etc/netplan/99-uc-fw-noroutes.yaml
+    owner: root
+    group: root
+    mode: "0600"
+  notify: netplan apply
+
+- name: Appliquer la conf réseau maintenant (purge les routes parasites)
+  ansible.builtin.meta: flush_handlers
+
 # --- IP forwarding -----------------------------------------------------------
 - name: Activer le forwarding IPv4 et désactiver les redirects (sysctl.d)
   ansible.builtin.copy:
