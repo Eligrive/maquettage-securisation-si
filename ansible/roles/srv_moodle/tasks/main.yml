@@ -169,7 +169,7 @@
     repo: "{{ moodle_oidc_plugin_repo }}"
     dest: /var/www/html/moodle/auth/oidc
     depth: 1
-    version: HEAD
+    version: "{{ moodle_oidc_plugin_version }}"
     update: false
   register: _moodle_oidc_clone
 

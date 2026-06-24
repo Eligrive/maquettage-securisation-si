@@ -22,5 +22,9 @@ moodle_wwwroot: "https://moodle.unicampus.fr"
 # vers OIDC (UPDATE mdl_user) est désactivée par défaut pour ne pas verrouiller
 # le compte admin local de secours ; activer avec moodle_oidc_migrate_users=true.
 moodle_oidc_plugin_repo: "https://github.com/microsoft/moodle-auth_oidc.git"
+# La branche du plugin doit correspondre à la version de Moodle installée, sinon
+# l'upgrade CLI échoue ("Dependencies check failed for auth_oidc"). Le plugin suit
+# la même convention de nommage que Moodle (MOODLE_404_STABLE).
+moodle_oidc_plugin_version: "{{ moodle_branch }}"
 moodle_oidc_client_id: "moodle-client"
 moodle_oidc_migrate_users: false
