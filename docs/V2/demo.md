@@ -19,8 +19,14 @@ nmap nmap -sP 192.168.101.0/24
 ```
 
 * tests de SSO depuis une machine (connexion à différents services avec une seule session)
+Connexion aux différentes ressources 
 
-* SSH depuis les machines ne doivent pas fonctionner -> les ports SSH des machines sont fermés
+* SSH depuis les machines ne doivent pas fonctionner
+
+```bash 
+# Pour la connexion au ldap 
+ssh -o PreferredAuthentications=password -o PubkeyAuthentication=no root@192.168.104.1
+```
 
 Moodle a une IP flottante publique -> accessible depuis l'extérieur
 
