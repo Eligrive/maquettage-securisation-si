@@ -87,10 +87,12 @@ locals {
   # Services exposés en Floating IP : chaque service a une IP alias sur le port
   # transit du firewall, qui fait le DNAT vers l'IP interne du service.
   fw_transit_aliases = {
-    vpn-legacy = "192.168.108.10" # PPTP 1723 + GRE -> 192.168.106.1
+    vpn-legacy = "192.168.108.10" # §1.4 : WireGuard UDP 51820 -> 192.168.106.1
     srv-mail   = "192.168.108.11" # SMTP/IMAP/POP3 -> 192.168.105.1
     srv-moodle = "192.168.108.12" # HTTP/HTTPS    -> 192.168.107.1
-    web-rh     = "192.168.108.13" # HTTP          -> 192.168.104.2
+    # §1.3 (remédiation) : web-rh N'EST PLUS exposé en Floating IP. Le portail RH
+    # n'est accessible que via le reverse proxy HTTPS (rh.unicampus.fr, SSO) porté
+    # par la FIP du firewall, ou via le bastion. (Ancien alias .108.13 supprimé.)
   }
 }
 

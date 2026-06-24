@@ -59,7 +59,7 @@
     state: started
     daemon_reload: true
 
-# --- Helpers conntrack PPTP --------------------------------------------------
+# --- Helpers conntrack PPTP (vide en V2 : VPN WireGuard, plus de PPTP/GRE) ----
 - name: Charger les modules conntrack PPTP au boot
   ansible.builtin.copy:
     dest: /etc/modules-load.d/uc-pptp-nat.conf
@@ -67,6 +67,7 @@
     owner: root
     group: root
     mode: "0644"
+  when: fw_pptp_modules | length > 0
 
 - name: Charger les modules conntrack PPTP immédiatement
   ansible.builtin.command:
@@ -74,6 +75,7 @@
   loop: "{{ fw_pptp_modules }}"
   changed_when: false
   failed_when: false
+  when: fw_pptp_modules | length > 0
 
 # --- Politiques par défaut (moindre privilège sur FORWARD) -------------------
 - name: Politique INPUT/OUTPUT ACCEPT

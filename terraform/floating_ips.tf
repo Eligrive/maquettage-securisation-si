@@ -14,14 +14,18 @@
 #                                     reverse_proxy). Tous les services web
 #                                     (sso/moodle/mail/rh/bastion.unicampus.fr)
 #                                     sont publiés derrière cette IP unique.
-#   FIP vpn      -> 192.168.108.10 -> DNAT 192.168.106.1 (PPTP 1723 + GRE)
+#   FIP vpn      -> 192.168.108.10 -> DNAT 192.168.106.1 (WireGuard UDP 51820, §1.4)
 #   FIP mail     -> 192.168.108.11 -> DNAT 192.168.105.1 (SMTP/IMAP/POP3)
 #   FIP moodle   -> 192.168.108.12 -> DNAT 192.168.107.1 (HTTP/HTTPS direct, legacy)
-#   FIP web-rh   -> 192.168.108.13 -> DNAT 192.168.104.2 (HTTP direct, legacy)
+#
+# §1.3 (remédiation) : le portail RH N'A PLUS de Floating IP. Une appli RH interne
+# (salaires, IBAN) n'a aucune raison d'être joignable depuis Internet. L'accès se
+# fait uniquement via le reverse proxy HTTPS + SSO (rh.unicampus.fr, FIP firewall)
+# ou via le bastion. (Ancien alias web-rh .108.13 supprimé de network.tf.)
 #
 # NB : en V2 l'accès « propre » aux applis web passe par le reverse proxy
-# (FIP firewall:443, HTTPS + SSO). Les FIP moodle/web-rh restent pour l'accès
-# HTTP direct hérité de la maquette V1 (démonstration avant/après durcissement).
+# (FIP firewall:443, HTTPS + SSO). La FIP moodle reste pour l'accès HTTP direct
+# hérité de la maquette V1 (démonstration avant/après durcissement).
 #
 # Le SIEM a sa propre FIP (cf. siem.tf, réseau SOC routé par le routeur Neutron).
 
