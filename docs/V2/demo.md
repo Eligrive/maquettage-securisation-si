@@ -54,3 +54,6 @@ utilisateur admin
 ```
 
 * Passage automatique de HTTP à HTTPS par le DNS
+  
+* Test RBAC : 
+Il faut tenter la connexion a web rh avec un compte étudiant 
