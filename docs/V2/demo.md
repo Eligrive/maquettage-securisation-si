@@ -31,6 +31,13 @@ ssh -o PreferredAuthentications=password -o PubkeyAuthentication=no root@192.168
 Moodle a une IP flottante publique -> accessible depuis l'extérieur
 
 * Connexion aux DB impossible SAUF par le bastion
+```bash
+# rh 
+mysql -h 192.168.104.3 -u root -p
+
+#base recherche
+psql -h 192.168.102.1 -U postgres -d lrid_results
+```
 
 * Checker le bastion (Teleport ?)
 
