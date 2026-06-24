@@ -1,11 +1,22 @@
 ---
 # ============================================================================
-#  Rôle srv_mail — messagerie en clair (ex scripts/srv-mail.sh)
+#  Rôle srv_mail — messagerie Postfix + Dovecot — V2 DURCIE
 # ============================================================================
-# SMTP 25 / IMAP 143 / POP3 110, auth plaintext, pas de TLS, relais ouvert
-# (mynetworks 0.0.0.0/0) — vulns volontaires §6.2.
+# §3.6 : relais FERMÉ (mynetworks restreint + reject_unauth_destination), TLS
+# (STARTTLS, PKI interne), signature DKIM (opendkim) et enregistrements
+# SPF/DKIM/DMARC générés pour publication. Plus de relais ouvert (vecteur SO2).
 
 mail_domain: "unicampus.local"
 
+# §3.6 : réseaux internes autorisés à relayer (remplace 0.0.0.0/0). Loopback +
+# supernet campus (couvre Roundcube et les services internes légitimes).
+mail_internal_networks: "127.0.0.0/8 [::1]/128 192.168.0.0/16"
+
+# Sélecteur DKIM (clé publiée en DNS : <selector>._domainkey.<domaine>).
+mail_dkim_selector: "uc2026"
+
 # Boîte qui héberge le leurre (mail DSI diffusant le compte d'admin en clair).
 mail_decoy_user: "jdupont"
+# V2 (remédiation §4.5) : le mail-leurre diffusant le compte 'dsi' partagé n'est
+# plus déployé (compte supprimé). Mettre à true uniquement pour rejouer la démo V1.
+mail_decoy_deploy: false

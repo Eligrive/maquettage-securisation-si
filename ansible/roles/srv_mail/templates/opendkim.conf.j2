@@ -1,0 +1,13 @@
+# {{ ansible_managed }}
+# Signature DKIM des mails sortants (§3.6). Socket inet locale consommée par
+# Postfix (smtpd_milters = inet:127.0.0.1:8891).
+Syslog                  yes
+UMask                   007
+Mode                    sv
+Socket                  inet:8891@127.0.0.1
+PidFile                 /run/opendkim/opendkim.pid
+OversignHeaders         From
+Canonicalization        relaxed/simple
+Domain                  {{ mail_domain }}
+Selector                {{ mail_dkim_selector }}
+KeyFile                 /etc/opendkim/keys/{{ mail_domain }}/{{ mail_dkim_selector }}.private

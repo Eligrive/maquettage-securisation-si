@@ -10,3 +10,9 @@
     name: dovecot
     state: restarted
     enabled: true
+
+- name: restart opendkim
+  ansible.builtin.systemd:
+    name: opendkim
+    state: restarted
+    enabled: true

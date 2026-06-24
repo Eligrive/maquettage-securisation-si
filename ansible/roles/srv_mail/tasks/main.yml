@@ -52,31 +52,127 @@
     - restart postfix
     - restart dovecot
 
-# --- Postfix : écoute partout, relais ouvert, aucun TLS, Maildir -------------
+# --- Postfix : relais FERMÉ + STARTTLS + milter DKIM (§3.6) ------------------
 # Bloc d'overrides en fin de main.cf (la dernière définition d'une clé gagne).
-- name: Surcharger la configuration Postfix (relais ouvert + STARTTLS V2)
+- name: Surcharger la configuration Postfix (relais fermé + TLS + DKIM)
   ansible.builtin.blockinfile:
     path: /etc/postfix/main.cf
-    marker: "# {mark} ANSIBLE MANAGED: maquette vulnérable (srv_mail)"
+    marker: "# {mark} ANSIBLE MANAGED: durcissement V2 (srv_mail)"
     block: |
       inet_interfaces = all
       inet_protocols = ipv4
       mydestination = {{ mail_domain }}, localhost.localdomain, localhost
-      mynetworks = 0.0.0.0/0
+      # §3.6 : relais FERMÉ — seuls les réseaux internes et les expéditeurs
+      # authentifiés peuvent relayer ; tout le reste est rejeté (plus d'open relay,
+      # vecteur de phishing de SO2).
+      mynetworks = {{ mail_internal_networks }}
+      smtpd_relay_restrictions = permit_mynetworks, permit_sasl_authenticated, reject_unauth_destination
       home_mailbox = Maildir/
-      # V2 : STARTTLS opportuniste (PKI interne). « may » conserve le clair pour
-      # la rétro-compat maquette, tout en proposant le chiffrement (règle 31 ANSSI).
+      # STARTTLS opportuniste (PKI interne). L'auth n'est acceptée que sur un canal
+      # chiffré (règle 31 ANSSI).
       smtpd_tls_security_level = may
+      smtpd_tls_auth_only = yes
       smtpd_tls_cert_file = /etc/ssl/certs/mail.fullchain.crt
       smtpd_tls_key_file = /etc/ssl/private/mail.key
+      # Signature DKIM via opendkim (milter). milter_default_action=accept : si le
+      # milter est indisponible, le mail passe quand même (pas de blocage).
+      milter_default_action = accept
+      milter_protocol = 6
+      smtpd_milters = inet:127.0.0.1:8891
+      non_smtpd_milters = inet:127.0.0.1:8891
   notify: restart postfix
 
-# --- Dovecot : plaintext autorisé, pas de TLS, Maildir ----------------------
-- name: Dovecot — autoriser l'auth plaintext
+# ============================================================================
+#  V2 — Signature DKIM (opendkim) + enregistrements SPF/DKIM/DMARC (§3.6)
+# ============================================================================
+- name: DKIM — installer opendkim
+  ansible.builtin.apt:
+    name:
+      - opendkim
+      - opendkim-tools
+    state: present
+    update_cache: true
+  retries: 3
+  delay: 10
+  register: _apt_dkim
+  until: _apt_dkim is succeeded
+
+- name: DKIM — créer le répertoire des clés
+  ansible.builtin.file:
+    path: "/etc/opendkim/keys/{{ mail_domain }}"
+    state: directory
+    owner: opendkim
+    group: opendkim
+    mode: "0700"
+
+- name: DKIM — générer la paire de clés (si absente)
+  ansible.builtin.command:
+    cmd: "opendkim-genkey -b 2048 -d {{ mail_domain }} -s {{ mail_dkim_selector }} -D /etc/opendkim/keys/{{ mail_domain }}"
+    creates: "/etc/opendkim/keys/{{ mail_domain }}/{{ mail_dkim_selector }}.private"
+
+- name: DKIM — droits sur la clé privée (lecture opendkim)
+  ansible.builtin.file:
+    path: "/etc/opendkim/keys/{{ mail_domain }}/{{ mail_dkim_selector }}.private"
+    owner: opendkim
+    group: opendkim
+    mode: "0600"
+
+- name: DKIM — configuration opendkim.conf
+  ansible.builtin.template:
+    src: opendkim.conf.j2
+    dest: /etc/opendkim.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart opendkim
+
+- name: DKIM — forcer la socket inet (compat /etc/default/opendkim)
+  ansible.builtin.lineinfile:
+    path: /etc/default/opendkim
+    regexp: '^#?\s*SOCKET\s*='
+    line: 'SOCKET="inet:8891@127.0.0.1"'
+    create: true
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart opendkim
+
+- name: DKIM — activer et démarrer opendkim
+  ansible.builtin.systemd:
+    name: opendkim
+    state: started
+    enabled: true
+
+# Enregistrements DNS à publier (le DNS interne /etc/hosts ne gère pas les TXT :
+# ces enregistrements sont produits ici pour publication sur le DNS faisant
+# autorité du domaine — cf. docs/V2/solutions.md §3.6).
+- name: DKIM — récupérer la valeur publique générée
+  ansible.builtin.slurp:
+    src: "/etc/opendkim/keys/{{ mail_domain }}/{{ mail_dkim_selector }}.txt"
+  register: _dkim_txt
+
+- name: DKIM/SPF/DMARC — déposer les enregistrements DNS à publier
+  ansible.builtin.copy:
+    dest: /etc/unicampus-mail-dns-records.txt
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # {{ ansible_managed }}
+      # Enregistrements DNS à publier sur la zone {{ mail_domain }} (§3.6).
+      # SPF : seul ce serveur est autorisé à émettre pour le domaine.
+      {{ mail_domain }}.            IN TXT "v=spf1 a mx -all"
+      # DMARC : rejeter les messages non authentifiés (SPF/DKIM).
+      _dmarc.{{ mail_domain }}.     IN TXT "v=DMARC1; p=reject; rua=mailto:postmaster@{{ mail_domain }}"
+      # DKIM (clé publique générée par opendkim) :
+      {{ _dkim_txt.content | b64decode }}
+
+# --- Dovecot : auth chiffrée (plaintext interdit hors TLS), Maildir ----------
+- name: Dovecot — interdire l'auth en clair hors TLS (§3.2)
   ansible.builtin.lineinfile:
     path: /etc/dovecot/conf.d/10-auth.conf
     regexp: '^#?\s*disable_plaintext_auth\s*='
-    line: "disable_plaintext_auth = no"
+    line: "disable_plaintext_auth = yes"
   notify: restart dovecot
 
 - name: Dovecot — mécanismes d'auth plain login
@@ -117,7 +213,9 @@
   notify: restart dovecot
 
 # --- Leurre : mail informel DSI partagé en clair (compte admin réutilisé) ----
-# Modélise une dérive : la DSI distribue par mail un compte d'admin "de secours".
+# V2 (remédiation §4.5) : DÉSACTIVÉ par défaut (mail_decoy_deploy=false). Ce
+# leurre modélisait la diffusion par mail du compte d'admin partagé 'dsi' (cf.
+# SO2) ; ce compte est supprimé en V2, le leurre n'a plus lieu d'être.
 - name: Créer la Maildir du compte leurre
   ansible.builtin.file:
     path: "/home/{{ mail_decoy_user }}/Maildir/cur"
@@ -125,6 +223,7 @@
     owner: "{{ mail_decoy_user }}"
     group: "{{ mail_decoy_user }}"
     mode: "0700"
+  when: mail_decoy_deploy | default(false)
 
 - name: Déposer le mail-leurre (compte d'urgence DSI en clair)
   ansible.builtin.template:
@@ -134,6 +233,7 @@
     owner: "{{ mail_decoy_user }}"
     group: "{{ mail_decoy_user }}"
     mode: "0644"
+  when: mail_decoy_deploy | default(false)
 
 - name: Activer et démarrer Postfix et Dovecot
   ansible.builtin.systemd:
