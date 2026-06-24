@@ -55,8 +55,19 @@
     mode: "0600"
   notify: netplan apply
 
-- name: Appliquer la conf réseau maintenant (purge les routes parasites)
+- name: Appliquer la conf réseau maintenant (use-routes:false sur les VLAN)
   ansible.builtin.meta: flush_handlers
+
+# netplan/use-routes ne purge PAS les routes du bail DHCP déjà actif (confirmé :
+# le trafic ressortait par une interface VLAN au lieu du transit). On retire donc
+# explicitement les routes globales (défaut / DNS / metadata) restées sur chaque
+# interface VLAN ; la route connectée /24 (scope link) est conservée, et le transit
+# garde défaut/DNS. Chemin complet de `ip` (/usr/sbin absent du PATH non interactif).
+- name: Purger les routes globales parasites laissées sur les interfaces VLAN
+  ansible.builtin.command:
+    cmd: "/usr/sbin/ip route flush dev {{ item }} scope global"
+  loop: "{{ fw_vlan_ifaces }}"
+  changed_when: false
 
 # --- IP forwarding -----------------------------------------------------------
 - name: Activer le forwarding IPv4 et désactiver les redirects (sysctl.d)
