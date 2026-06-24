@@ -74,6 +74,35 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 4bis. Group-mapper LDAP : synchronise ou=groups (groupOfNames) vers les
+#       groupes Keycloak du même nom (Etudiants, Professeurs, Equipe_RH, ...).
+#       Comme ces groupes portent déjà un rôle realm (cf. §3), l'appartenance
+#       LDAP -> groupe Keycloak -> rôle RBAC est résolue à chaque connexion
+#       (stratégie LOAD_GROUPS_BY_MEMBER_ATTRIBUTE). C'est ce qui « câble »
+#       réellement les identités de l'annuaire aux autorisations applicatives.
+# ---------------------------------------------------------------------------
+FED_ID="$(kc get components -r "$REALM" -q name=LDAP-UniCampus --fields id --format csv 2>/dev/null | tr -d '"')"
+if [ -n "$FED_ID" ] && [ -z "$(kc get components -r "$REALM" -q name=group-ldap-mapper --fields id --format csv 2>/dev/null | tr -d '"')" ]; then
+  echo "CREATED: group-ldap-mapper"
+  kc create components -r "$REALM" \
+    -s name="group-ldap-mapper" \
+    -s providerId="group-ldap-mapper" \
+    -s providerType="org.keycloak.storage.ldap.mappers.LDAPStorageMapper" \
+    -s parentId="$FED_ID" \
+    -s 'config."groups.dn"=["ou=groups,{{ ldap_base_dn }}"]' \
+    -s 'config."group.name.ldap.attribute"=["cn"]' \
+    -s 'config."group.object.classes"=["groupOfNames"]' \
+    -s 'config."membership.ldap.attribute"=["member"]' \
+    -s 'config."membership.attribute.type"=["DN"]' \
+    -s 'config."membership.user.ldap.attribute"=["uid"]' \
+    -s 'config."mode"=["READ_ONLY"]' \
+    -s 'config."user.roles.retrieve.strategy"=["LOAD_GROUPS_BY_MEMBER_ATTRIBUTE"]' \
+    -s 'config."drop.non.existing.groups.during.sync"=["false"]'
+else
+  echo "[=] group-ldap-mapper déjà présent (ou fédération absente)."
+fi
+
+# ---------------------------------------------------------------------------
 # 5. Clients OIDC (un par application) — get-or-create + mapper de rôles
 # ---------------------------------------------------------------------------
 create_client() {
@@ -84,13 +113,17 @@ create_client() {
     echo "[=] Client $cid déjà présent."
     return 0
   fi
+  # redirect peut contenir PLUSIEURS URIs séparées par des espaces (ex. web-rh
+  # est joignable via rh.unicampus.fr ET webrh.unicampus.fr) -> tableau JSON.
+  local uris_json="" sep=""
+  for u in $redirect; do uris_json="${uris_json}${sep}\"$u\""; sep=","; done
   echo "CREATED: client OIDC $cid"
   kc create clients -r "$REALM" \
     -s clientId="$cid" \
     -s enabled=true \
     -s publicClient=false \
     -s secret="$secret" \
-    -s "redirectUris=[\"$redirect\"]" \
+    -s "redirectUris=[$uris_json]" \
     -s standardFlowEnabled=true \
     -s directAccessGrantsEnabled=true
   if [ "$with_mapper" = "yes" ]; then
@@ -109,7 +142,7 @@ create_client() {
 
 create_client "moodle-client"    "{{ oidc_secrets.moodle }}"    "https://moodle.unicampus.fr/auth/oidc/"               "no"
 create_client "roundcube-client" "{{ oidc_secrets.roundcube }}" "https://mail.unicampus.fr/index.php/login/oauth"      "no"
-create_client "webrh-client"     "{{ oidc_secrets.webrh }}"     "https://webrh.unicampus.fr/auth-callback"             "yes"
+create_client "webrh-client"     "{{ oidc_secrets.webrh }}"     "https://webrh.unicampus.fr/auth-callback https://rh.unicampus.fr/auth-callback" "yes"
 create_client "teleport-bastion" "{{ oidc_secrets.teleport }}"  "https://bastion.unicampus.fr/v1/webapi/oidc/callback" "yes"
 
 # ---------------------------------------------------------------------------

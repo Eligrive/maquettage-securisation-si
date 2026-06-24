@@ -1,5 +1,8 @@
 # {{ ansible_managed }}
-# Peuplement de l'annuaire (cf. §6.1). userPassword en CLAIR (vuln volontaire).
+# Peuplement de l'annuaire (source d'autorité IAM, cf. defaults/main.yml).
+# Généré depuis ldap_people / ldap_groups. userPassword est HASHÉ (slappasswd,
+# §4.4) et destiné à être réinitialisé au 1er login via le SSO. Les groupes
+# (groupOfNames) portent les noms des groupes Keycloak (mapping RBAC direct).
 dn: ou=people,{{ ldap_base_dn }}
 objectClass: organizationalUnit
 ou: people
@@ -7,43 +10,23 @@ ou: people
 dn: ou=groups,{{ ldap_base_dn }}
 objectClass: organizationalUnit
 ou: groups
+{% for p in ldap_people %}
 
-dn: uid=lmartin,ou=people,{{ ldap_base_dn }}
+dn: uid={{ p.uid }},ou=people,{{ ldap_base_dn }}
 objectClass: inetOrgPerson
-objectClass: posixAccount
-uid: lmartin
-cn: Lea Martin
-sn: Martin
-givenName: Lea
-uidNumber: 10001
-gidNumber: 10001
-homeDirectory: /home/lmartin
-loginShell: /bin/bash
-mail: lea.martin@{{ ldap_domain }}
-userPassword: unicampus2024
+uid: {{ p.uid }}
+cn: {{ p.given }} {{ p.sn }}
+sn: {{ p.sn }}
+givenName: {{ p.given }}
+mail: {{ (p.given ~ '.' ~ p.sn) | lower | replace(' ', '') }}@{{ ldap_domain }}
+userPassword: {{ ldap_pw_hash }}
+{% endfor %}
+{% for g in ldap_groups %}
 
-dn: uid=jdupont,ou=people,{{ ldap_base_dn }}
-objectClass: inetOrgPerson
-objectClass: posixAccount
-uid: jdupont
-cn: Jean-Pierre Dupont
-sn: Dupont
-givenName: Jean-Pierre
-uidNumber: 10002
-gidNumber: 10002
-homeDirectory: /home/jdupont
-loginShell: /bin/bash
-mail: j.dupont@{{ ldap_domain }}
-userPassword: unicampus2024
-
-dn: cn=etudiants,ou=groups,{{ ldap_base_dn }}
-objectClass: posixGroup
-cn: etudiants
-gidNumber: 20001
-memberUid: lmartin
-
-dn: cn=enseignants,ou=groups,{{ ldap_base_dn }}
-objectClass: posixGroup
-cn: enseignants
-gidNumber: 20002
-memberUid: jdupont
+dn: cn={{ g }},ou=groups,{{ ldap_base_dn }}
+objectClass: groupOfNames
+cn: {{ g }}
+{% for p in ldap_people if p.group == g %}
+member: uid={{ p.uid }},ou=people,{{ ldap_base_dn }}
+{% endfor %}
+{% endfor %}

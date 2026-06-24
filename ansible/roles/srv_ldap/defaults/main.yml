@@ -1,10 +1,50 @@
 ---
 # ============================================================================
-#  Rôle srv_ldap — annuaire OpenLDAP (ex scripts/srv-ldap.sh)
+#  Rôle srv_ldap — annuaire OpenLDAP — V2 SOURCE D'AUTORITÉ IAM
 # ============================================================================
-# Bind anonyme autorisé, pas de TLS, mot de passe admin faible (vuln §6.1).
+# L'annuaire est la source d'autorité des identités (§2.2). Il est fédéré par
+# Keycloak (SSO) et durci : LDAPS (PKI interne), bind/lecture ANONYME interdits
+# (§3.1 -> neutralise la reconnaissance LDAP de SO1/SO3), mots de passe hashés.
 
 ldap_domain: "unicampus.local"
 ldap_org: "UniCampus"
 ldap_base_dn: "dc=unicampus,dc=local"
 ldap_admin_password: "unicampus2024"
+
+# Mot de passe initial commun aux comptes (stocké HASHÉ, cf. slappasswd). Il est
+# destiné à être réinitialisé à la première connexion via le SSO (action requise
+# Keycloak UPDATE_PASSWORD) : il ne sert qu'à l'amorçage de la fédération.
+ldap_initial_password: "unicampus2024"
+
+# Identités de l'établissement (reprend le jeu enrichi de la branche feat/IAM).
+# Chaque personne appartient à UN groupe = UN rôle RBAC Keycloak (cf.
+# keycloak_groups / keycloak_realm_roles dans group_vars/all.yml). C'est ce qui
+# fait fonctionner la chaîne : LDAP (groupe) -> Keycloak (rôle realm) -> appli.
+ldap_people:
+  # --- Étudiants -----------------------------------------------------------
+  - { uid: lmartin, given: "Lea", sn: "Martin", group: Etudiants }
+  - { uid: sgarnier, given: "Sophie", sn: "Garnier", group: Etudiants }
+  - { uid: mbernard, given: "Marc", sn: "Bernard", group: Etudiants }
+  # --- Professeurs ---------------------------------------------------------
+  - { uid: jdupont, given: "Jean-Pierre", sn: "Dupont", group: Professeurs }
+  - { uid: mduchamp, given: "Martine", sn: "Duchamp", group: Professeurs }
+  # --- Chercheurs ----------------------------------------------------------
+  - { uid: lfouquet, given: "Laurent", sn: "Fouquet", group: Chercheurs }
+  # --- DSI (administration technique) --------------------------------------
+  - { uid: jmoreau, given: "Jean", sn: "Moreau", group: Equipe_DSI }
+  # --- DBA (administration bases de données) -------------------------------
+  - { uid: eparfait, given: "Eric", sn: "Parfait", group: Equipe_DBA }
+  # --- RH ------------------------------------------------------------------
+  - { uid: elauren, given: "Elise", sn: "Lauren", group: Equipe_RH }
+  # --- Intervenant externe -------------------------------------------------
+  - { uid: pexternal, given: "Pierre", sn: "External", group: Intervenants_Externes }
+
+# Groupes (= organigramme RBAC). Doit correspondre aux keycloak_groups.
+ldap_groups:
+  - Etudiants
+  - Professeurs
+  - Chercheurs
+  - Equipe_DSI
+  - Equipe_DBA
+  - Equipe_RH
+  - Intervenants_Externes
