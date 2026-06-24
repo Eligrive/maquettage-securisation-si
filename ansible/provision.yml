@@ -117,6 +117,7 @@
   gather_facts: true
   roles:
     - { role: common, tags: [common, roundcube] }
+    - { role: maquette_accounts, tags: [accounts, roundcube] }
     - { role: srv_roundcube, tags: [roundcube, iam] }
 
 - name: LMS Moodle (Apache/PHP/MariaDB)
@@ -137,12 +138,12 @@
     - { role: loot, tags: [loot, calc] }
     - { role: calc_recherche, tags: [calc] }
 
-- name: Concentrateur VPN PPTP
+- name: Concentrateur VPN WireGuard (remplace PPTP/MPPE — §1.4)
   hosts: vpn
   gather_facts: true
   roles:
     - { role: common, tags: [common, vpn] }
-    - { role: vpn_legacy, tags: [vpn] }
+    - { role: vpn_wireguard, tags: [vpn] }
 
 # --- Lot V2 IAM : bastion Teleport (APRÈS Keycloak, dont il consomme l'OIDC) --
 - name: Bastion Teleport (auth + proxy + connecteur OIDC Keycloak)
