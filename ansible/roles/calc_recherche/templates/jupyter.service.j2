@@ -1,11 +1,13 @@
 [Unit]
-Description=Jupyter Notebook (maquette vulnérable)
+Description=Jupyter Notebook (V2 durcie : 127.0.0.1 + token)
 After=network.target
 
 [Service]
 User={{ calc_pg_user }}
 WorkingDirectory={{ calc_share_path }}
-ExecStart=/opt/jupyter-venv/bin/jupyter-notebook --ip=0.0.0.0 --port=8888 --no-browser --NotebookApp.token='' --NotebookApp.password='' --notebook-dir={{ calc_share_path }}
+# §3.5 : écoute UNIQUEMENT sur la boucle locale + token fort. L'accès distant se
+# fait par tunnel SSH via le bastion (plus d'exposition 0.0.0.0 sans auth).
+ExecStart=/opt/jupyter-venv/bin/jupyter-notebook --ip=127.0.0.1 --port=8888 --no-browser --NotebookApp.token='{{ calc_jupyter_token }}' --notebook-dir={{ calc_share_path }}
 Restart=always
 
 [Install]

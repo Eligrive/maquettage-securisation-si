@@ -1,9 +1,11 @@
 ---
 # ============================================================================
-#  Rôle calc_recherche — calcul recherche (ex scripts/calc-recherche.sh)
+#  Rôle calc_recherche — calcul recherche — V2 DURCIE
 # ============================================================================
-# NFS export monde + no_root_squash, Samba guest, Jupyter sans token (0.0.0.0:8888),
-# PostgreSQL local. Héberge les données de recherche (leurres). Vulns §4.2.
+# §3.3 NFS : export restreint au VLAN recherche + root_squash (plus de '*' ni
+#            no_root_squash). §3.4 Samba : plus de partage invité ni force user=
+#            root ; accès authentifié et à privilèges minimaux. §3.5 Jupyter :
+#            écoute sur 127.0.0.1 + token fort (accès via tunnel SSH / bastion).
 
 calc_share_path: "/srv/recherche"
 
@@ -12,7 +14,19 @@ calc_pg_db: "lrid_results"
 calc_pg_user: "recherche"
 calc_pg_pass: "recherche2024"
 
-# Samba : partage "partenaires" authentifié (sert SO4).
+# Groupe Unix propriétaire du partage. Seuls ses membres (utilisateurs Samba
+# autorisés) accèdent aux données — répertoire en 2770 (setgid), plus de 0777.
+calc_share_group: "recherche"
+
+# §3.3 : clients NFS autorisés (CIDR du VLAN recherche). Remplace l'export '*'.
+calc_nfs_clients: "192.168.102.0/24"
+
+# §3.5 : token Jupyter (l'écoute est restreinte à localhost ; l'accès distant
+# passe par un tunnel SSH via le bastion). En prod : secret de coffre-fort.
+calc_jupyter_token: "Jupyter_Token_Recherche_2026_UniCampus"
+
+# Samba : partage "partenaires" AUTHENTIFIÉ (plus de partage invité). Les
+# partenaires (pa1) accèdent en lecture aux données partagées, sans force root.
 calc_samba_valid_users: "pa1, sleblanc, jdupont"
 
 # Mots de passe Samba (comptes Unix créés par maquette_accounts au préalable).

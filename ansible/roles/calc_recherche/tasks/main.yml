@@ -18,18 +18,40 @@
   register: _apt_calc
   until: _apt_calc is succeeded
 
-- name: Créer le partage de données recherche (permissif, vuln volontaire)
+# --- Groupe propriétaire du partage (moindre privilège, §3.3/§3.4) -----------
+- name: Créer le groupe propriétaire du partage recherche
+  ansible.builtin.group:
+    name: "{{ calc_share_group }}"
+    state: present
+
+- name: Rattacher les utilisateurs autorisés au groupe du partage
+  ansible.builtin.user:
+    name: "{{ item.user }}"
+    groups: "{{ calc_share_group }}"
+    append: true
+  loop: "{{ calc_smb_users }}"
+  loop_control:
+    label: "{{ item.user }}"
+
+- name: Créer le partage de données recherche (2770, plus de 0777)
   ansible.builtin.file:
     path: "{{ calc_share_path }}"
     state: directory
-    mode: "0777"
+    # owner fixé à 'root' ici (l'utilisateur de service {{ calc_pg_user }} est
+    # créé plus bas) ; le chown final vers {{ calc_pg_user }}:{{ calc_share_group }}
+    # est appliqué après création du compte de service.
+    owner: root
+    group: "{{ calc_share_group }}"
+    # setgid (2) : les fichiers créés héritent du groupe -> accès restreint aux
+    # seuls membres autorisés (remédiation §3.4, remplace 0777).
+    mode: "2770"
 
-# --- NFS : export monde entier, no_root_squash (vuln volontaire) -------------
-- name: Exporter {{ calc_share_path }} en NFS (no_root_squash)
+# --- NFS : export restreint au VLAN recherche + root_squash (§3.3) -----------
+- name: Exporter {{ calc_share_path }} en NFS (clients restreints, root_squash)
   ansible.builtin.lineinfile:
     path: /etc/exports
     regexp: "^{{ calc_share_path | regex_escape }}\\s"
-    line: "{{ calc_share_path }} *(rw,sync,no_root_squash,no_subtree_check)"
+    line: "{{ calc_share_path }} {{ calc_nfs_clients }}(rw,sync,root_squash,no_subtree_check)"
     create: true
     owner: root
     group: root
@@ -42,25 +64,36 @@
     state: started
     enabled: true
 
-# --- Samba : partage ouvert en invité + partage "partenaires" authentifié ----
-- name: Configurer les partages Samba
+# --- Samba : durcissement global (plus d'accès invité/anonyme, §3.4) ---------
+- name: Durcir la configuration Samba globale (anti-invité/anonyme)
+  ansible.builtin.blockinfile:
+    path: /etc/samba/smb.conf
+    marker: "# {mark} ANSIBLE MANAGED: durcissement global (calc_recherche)"
+    insertafter: '^\[global\]'
+    block: |
+      # §3.4 : aucun accès invité/anonyme, protocole moderne uniquement.
+      map to guest = Never
+      restrict anonymous = 2
+      server min protocol = SMB2
+  notify: restart smbd
+
+# --- Samba : un SEUL partage, AUTHENTIFIÉ, sans force user=root (§3.4) --------
+- name: Configurer le partage Samba partenaires (authentifié, sans force root)
   ansible.builtin.blockinfile:
     path: /etc/samba/smb.conf
     marker: "# {mark} ANSIBLE MANAGED: partages maquette (calc_recherche)"
     block: |
-      [recherche]
-         path = {{ calc_share_path }}
-         browseable = yes
-         read only = no
-         guest ok = yes
-         force user = root
-
       [partenaires]
          path = {{ calc_share_path }}
          browseable = yes
          read only = no
+         guest ok = no
          valid users = {{ calc_samba_valid_users }}
-         force user = root
+         # plus de "force user = root" : chaque accès s'exécute avec l'identité
+         # du compte authentifié (moindre privilège).
+         force group = {{ calc_share_group }}
+         create mask = 0660
+         directory mask = 2770
   notify: restart smbd
 
 - name: Activer et démarrer Samba
@@ -139,11 +172,11 @@
     cmd: /opt/jupyter-venv/bin/pip install --quiet notebook
     creates: /opt/jupyter-venv/bin/jupyter-notebook
 
-- name: Donner le partage au compte de service (recherche:sleblanc)
+- name: Donner le partage au compte de service + groupe restreint
   ansible.builtin.file:
     path: "{{ calc_share_path }}"
     owner: "{{ calc_pg_user }}"
-    group: sleblanc
+    group: "{{ calc_share_group }}"
     recurse: true
 
 - name: Déployer l'unité systemd Jupyter
