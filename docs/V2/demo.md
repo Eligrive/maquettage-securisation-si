@@ -30,4 +30,12 @@ Moodle a une IP flottante publique -> accessible depuis l'extérieur
 
 * Accès au SIEM, voir le dashboard, les logs, les alertes
 
+```
+Connection Par le navigateur depuis des postes dans le reseau admin ou par la machine directement. 
+port : 443
+Dashboard : https://192.168.109.1, 
+ou https://localhost
+utilisateur admin
+```
+
 * Passage automatique de HTTP à HTTPS par le DNS
