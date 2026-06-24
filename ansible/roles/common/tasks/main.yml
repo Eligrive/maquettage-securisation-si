@@ -18,6 +18,20 @@
     that: ansible_facts['os_family'] == "Debian"
     fail_msg: "Le rôle common cible Ubuntu/Debian."
 
+# Prérequis du module ansible.builtin.debconf (utilisé par srv_ldap pour slapd
+# et par fw_central pour iptables-persistent) : il invoque debconf-get-selections,
+# fourni par debconf-utils, ABSENT de l'image cloud Ubuntu minimale.
+- name: Installer debconf-utils (prérequis du module debconf)
+  ansible.builtin.apt:
+    name: debconf-utils
+    state: present
+    update_cache: true
+  become: true
+  retries: 3
+  delay: 10
+  register: _apt_debconf_utils
+  until: _apt_debconf_utils is succeeded
+
 - name: Désactiver l'authentification SSH par mot de passe (drop-in)
   ansible.builtin.copy:
     src: 99-uc-passwords.conf
