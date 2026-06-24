@@ -86,6 +86,12 @@ resource "openstack_networking_subnet_v2" "soc" {
 
   enable_dhcp     = true
   dns_nameservers = ["8.8.8.8", "1.1.1.1"]
+
+  # Ajout de la plage pour empêcher l'agent DHCP de voler l'IP .1
+  allocation_pool {
+    start = cidrhost(var.siem_subnet_cidr, 100)
+    end   = cidrhost(var.siem_subnet_cidr, 200)
+  }
 }
 
 # Interface routeur : raccorde le SOC au routeur Neutron existant
