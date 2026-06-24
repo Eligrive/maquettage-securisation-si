@@ -4,10 +4,11 @@
 # ============================================================================
 
 # --- Provisioning maquette (rôle web_rh + comptes + leurres) ----------------
-# Comptes nominatifs (cred reuse) : VP Finances + admin DSI.
+# Comptes nominatifs + admin DSI nominatif (sudo à mot de passe). V2 : plus de
+# compte partagé 'dsi' NOPASSWD (§2.5).
 maquette_accounts:
   - { name: cfournier, password: finance2024 }
-  - { name: dsi, password: admin2024, sudo_nopasswd: true }
+  - { name: jmoreau, password: "{{ admin_dsi_password }}", sudo: true }
 
 # Documents RH (leurres) exposés.
 loot_assets_dir: web-rh

@@ -9,7 +9,7 @@
 maquette_accounts:
   - { name: jdupont, password: unicampus2024 }
   - { name: sleblanc, password: recherche2024 }
-  - { name: dsi, password: admin2024, sudo_nopasswd: true }
+  - { name: jmoreau, password: "{{ admin_dsi_password }}", sudo: true }
   - { name: pa1, password: partenaire2024 }
 
 # Données de recherche (leurres) déposées dans le partage NFS/Samba.
@@ -17,6 +17,12 @@ loot_assets_dir: calc-recherche
 loot_dests:
   - { path: /opt/loot, owner: root, group: root }
   - { path: /srv/recherche, owner: root, group: root }
+
+# --- Sauvegarde immuable (rôle backups, §5.2/M22) ---------------------------
+# Dump PostgreSQL (résultats expérimentaux) + données scientifiques partagées.
+backup_predump: "sudo -u postgres pg_dump lrid_results > {{ backup_staging_dir }}/recherche.sql"
+backup_paths:
+  - /srv/recherche
 
 # --- Supervision (agent Wazuh) ----------------------------------------------
 wazuh_agent_logfiles:

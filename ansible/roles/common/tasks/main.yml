@@ -8,17 +8,17 @@
 # l'ORDRE du playbook (le rôle fw_legacy est joué en premier, cf. provision.yml) et
 # par les retries des tâches apt des rôles services.
 #
-# Vulnérabilité VOLONTAIRE (sujet de la maquette) : on réactive l'authentification
-# SSH par mot de passe, désactivée par défaut sur les images cloud Ubuntu. C'est ce
-# qui rend démontrable la latéralisation par réutilisation de credentials (absence
-# de SSO -> un mot de passe par utilisateur, valable partout).
+# V2 DURCIE (remédiation cred-reuse) : l'authentification SSH par mot de passe est
+# DÉSACTIVÉE. C'était le vecteur de latéralisation par réutilisation de credentials
+# (SO2/SO5/SO6). L'accès se fait par clé/certificat ; l'administration distante
+# passe par le bastion (Teleport). Ansible continue de fonctionner (clé SSH).
 
 - name: Vérifier que l'OS est de la famille Debian/Ubuntu
   ansible.builtin.assert:
     that: ansible_facts['os_family'] == "Debian"
     fail_msg: "Le rôle common cible Ubuntu/Debian."
 
-- name: Activer l'authentification SSH par mot de passe (drop-in)
+- name: Désactiver l'authentification SSH par mot de passe (drop-in)
   ansible.builtin.copy:
     src: 99-uc-passwords.conf
     dest: /etc/ssh/sshd_config.d/99-uc-passwords.conf
@@ -28,9 +28,9 @@
   notify: restart ssh
 
 # Filet de sécurité si une distrib n'honore pas sshd_config.d.
-- name: Forcer PasswordAuthentication dans le sshd_config principal
+- name: Forcer PasswordAuthentication=no dans le sshd_config principal
   ansible.builtin.replace:
     path: /etc/ssh/sshd_config
     regexp: '^#?\s*PasswordAuthentication\s+.*$'
-    replace: "PasswordAuthentication yes"
+    replace: "PasswordAuthentication no"
   notify: restart ssh

@@ -16,5 +16,11 @@
 #     - { name: ubuntu,  create_user: false,  sudo_nopasswd: true }  # compte existant
 #
 # Clés : name (requis) ; password (clair, optionnel) ; sudo_nopasswd (bool, défaut
-# false) ; create_user (bool, défaut true) ; shell (défaut /bin/bash).
+# false) ; sudo (bool, défaut false — sudo NOMINATIF avec mot de passe, V2) ;
+# create_user (bool, défaut true) ; shell (défaut /bin/bash).
 maquette_accounts: []
+
+# Comptes à SUPPRIMER (remédiation V2) : le compte d'admin partagé 'dsi'
+# (admin2024, NOPASSWD, distribué par mail) est éradiqué au profit de comptes
+# nominatifs + bastion (§2.5). Surchargeable par host_vars si besoin.
+maquette_accounts_absent: []

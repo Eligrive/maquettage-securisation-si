@@ -4,9 +4,14 @@
 # ============================================================================
 
 # --- Provisioning maquette (rôle srv_ldap + comptes) ------------------------
-# Compte d'admin DSI réutilisé partout (cf. leurre mail), admin local.
+# V2 : compte d'admin NOMINATIF (DSI) avec sudo à mot de passe. Plus de compte
+# partagé 'dsi' NOPASSWD ; l'accès distant passe par le bastion (§2.5).
 maquette_accounts:
-  - { name: dsi, password: admin2024, sudo_nopasswd: true }
+  - { name: jmoreau, password: "{{ admin_dsi_password }}", sudo: true }
+
+# --- Sauvegarde immuable (rôle backups, §5.2/M22) ---------------------------
+# Export complet de l'annuaire (source d'autorité IAM) avant archivage restic.
+backup_predump: "slapcat -n 1 > {{ backup_staging_dir }}/ldap.ldif"
 
 # --- Supervision (agent Wazuh) ----------------------------------------------
 # slapd journalise via syslog (local4) -> /var/log/ldap.log si configuré, sinon

@@ -16,6 +16,20 @@ ansible_user: ubuntu
 # SIEM joint par sa propre FIP). Surchargé par la CI ou par -e ssh_jump_host=...
 ssh_jump_host: ""
 
+# ============================================================================
+#  Comptes — durcissement V2 (remédiation §2.5)
+# ============================================================================
+# Le compte d'admin PARTAGÉ 'dsi' (admin2024, sudo NOPASSWD, diffusé en clair
+# par mail) est SUPPRIMÉ de tous les hôtes au profit de comptes nominatifs +
+# accès via le bastion. Consommé par le rôle maquette_accounts.
+maquette_accounts_absent:
+  - dsi
+
+# Mot de passe local de l'administrateur DSI nominatif (jmoreau). N'est utilisé
+# que pour le sudo local / console de secours : l'accès distant se fait via le
+# bastion (SSO), et l'auth SSH par mot de passe est désactivée (rôle common V2).
+admin_dsi_password: "DSI-jmoreau-2026!"
+
 # --- Version Wazuh ----------------------------------------------------------
 # Branche majeure utilisée pour le dépôt APT (agents) et l'installeur assisté
 # (manager all-in-one).

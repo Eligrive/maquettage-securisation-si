@@ -7,7 +7,10 @@ metadata:
   name: role-teleport-admin-dsi
 spec:
   allow:
-    logins: ['ubuntu', 'dsi']
+    # V2 (§2.5) : login OS NOMINATIF (compte jmoreau provisionné sur les nœuds).
+    # Plus de compte partagé 'dsi'. L'identité réelle de l'opérateur est portée
+    # par le SSO (Keycloak) et tracée par le bastion (audit de session).
+    logins: ['jmoreau']
     node_labels:
       '*': '*'
 ---

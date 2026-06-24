@@ -4,12 +4,13 @@
 # ============================================================================
 
 # --- Provisioning maquette (rôle srv_moodle + comptes + leurres) ------------
-# Comptes nominatifs (mêmes mots de passe que dans Moodle/LDAP/mail -> latéralisation
-# SSH par réutilisation). 'dsi' admin partout.
+# Comptes nominatifs des utilisateurs + admin DSI nominatif (sudo à mot de passe).
+# V2 : plus de compte partagé 'dsi' NOPASSWD (§2.5) ; l'auth SSH par mot de passe
+# est désactivée (rôle common V2), l'admin passe par le bastion.
 maquette_accounts:
   - { name: jdupont, password: unicampus2024 }
   - { name: lmartin, password: Printemps2024 }
-  - { name: dsi, password: admin2024, sudo_nopasswd: true }
+  - { name: jmoreau, password: "{{ admin_dsi_password }}", sudo: true }
 
 # Documents pédagogiques (leurres) exposés dans Moodle.
 loot_assets_dir: srv-moodle
@@ -19,6 +20,12 @@ loot_dests:
 
 # moodle_wwwroot : laissé au défaut du rôle (IP interne) ; surchargé en CI/local
 # par -e moodle_wwwroot=http://<FIP_moodle> (cf. output terraform moodle_floating_ip).
+
+# --- Sauvegarde immuable (rôle backups, §5.2/M22) ---------------------------
+# Dump de la base Moodle (notes, cours) + données fichiers (moodledata).
+backup_predump: "mysqldump --single-transaction --routines --triggers moodle > {{ backup_staging_dir }}/moodle.sql"
+backup_paths:
+  - /var/moodledata
 
 # --- Supervision (agent Wazuh) ----------------------------------------------
 wazuh_agent_logfiles:

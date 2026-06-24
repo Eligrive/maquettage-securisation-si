@@ -1,6 +1,12 @@
 ---
 # Webmail Roundcube (Apache/Nginx + PHP). Surveillance des accès web et des
 # tentatives d'authentification webmail.
+
+# Admin DSI nominatif (sudo à mot de passe) : nécessaire pour l'accès SSH via le
+# bastion (nœud Teleport). V2 : plus de compte partagé 'dsi' (§2.5).
+maquette_accounts:
+  - { name: jmoreau, password: "{{ admin_dsi_password }}", sudo: true }
+
 wazuh_agent_logfiles:
   - format: "apache"
     location: "/var/log/apache2/access.log"

@@ -15,21 +15,7 @@ poste_packages_optional:
 maquette_accounts:
   - { name: jdupont, password: unicampus2024 }
 
-poste_files:
-  - dest: /home/ubuntu/identifiants.txt
-    owner: ubuntu
-    group: ubuntu
-    mode: "0644"
-    content: |
-      === Identifiants UniCampus+ (poste enseignant) ===
-      Tous les services utilisent le MEME mot de passe (pas de SSO -> dérive
-      "un mot de passe par utilisateur, valable partout").
-
-      Moodle      : http://192.168.107.1      login jdupont / unicampus2024
-      Messagerie  : 192.168.105.1 (IMAP/25)   login jdupont / unicampus2024
-      LDAP        : ldap://192.168.104.1      uid=jdupont,ou=people,... / unicampus2024
-      Recherche   : //192.168.102.1/recherche (Samba, guest)
-      Jupyter     : http://192.168.102.1:8888 (sans mot de passe)
-      SSH labo    : ssh jdupont@192.168.102.1                           / unicampus2024
-      SSH mail    : ssh jdupont@192.168.105.1                           / unicampus2024
-      SSH moodle  : ssh jdupont@192.168.107.1                           / unicampus2024
+# V2 (remédiation §4.5) : plus de fichier d'identifiants en clair sur le poste.
+# Avec le SSO (un seul login, MFA possible), il n'y a plus de "mot de passe par
+# service" à noter. L'ancien /home/ubuntu/identifiants.txt est supprimé.
+poste_files: []
