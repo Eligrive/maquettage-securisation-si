@@ -31,7 +31,10 @@ Moodle a une IP flottante publique -> accessible depuis l'extérieur
 * Connexion aux DB impossible SAUF par le bastion
 
 * Checker le bastion (Teleport ?)
-
+```
+compte admin-dsi
+https://192.168.103.2:3080
+```
 * Accès au SIEM, voir le dashboard, les logs, les alertes
 
 ```
