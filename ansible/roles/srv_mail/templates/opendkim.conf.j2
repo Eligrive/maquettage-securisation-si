@@ -4,6 +4,10 @@
 Syslog                  yes
 UMask                   007
 Mode                    sv
+# opendkim descend vers l'utilisateur 'opendkim' (propriétaire de /etc/opendkim
+# et des clés). Sans ça il reste root (uid 0) et RequireSafeKeys refuse de
+# démarrer car le dossier des clés est détenu par un autre uid (erreur 78).
+UserID                  opendkim
 Socket                  inet:8891@127.0.0.1
 PidFile                 /run/opendkim/opendkim.pid
 OversignHeaders         From

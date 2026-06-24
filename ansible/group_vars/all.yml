@@ -16,6 +16,14 @@ ansible_user: ubuntu
 # SIEM joint par sa propre FIP). Surchargé par la CI ou par -e ssh_jump_host=...
 ssh_jump_host: ""
 
+# --- En-tête « généré par Ansible » -----------------------------------------
+# Le module ansible.builtin.copy NE fournit PAS la variable magique
+# 'ansible_managed' dans le templating de 'content:' (contrairement au module
+# template). On la définit donc explicitement, sinon les en-têtes
+# « # {{ ansible_managed }} » des fichiers générés par copy (web_rh, srv_mail,
+# srv_roundcube, backups) lèvent « 'ansible_managed' is undefined ».
+ansible_managed: "Fichier géré par Ansible (projet UniCampus) — ne pas éditer à la main."
+
 # ============================================================================
 #  Comptes — durcissement V2 (remédiation §2.5)
 # ============================================================================

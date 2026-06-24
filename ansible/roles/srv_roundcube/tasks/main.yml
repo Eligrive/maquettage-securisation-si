@@ -15,7 +15,7 @@
   loop_control:
     label: "{{ item.q }}"
 
-- name: Installer Apache, PHP, Roundcube et git
+- name: Installer Apache, PHP, Roundcube, git et composer
   ansible.builtin.apt:
     name:
       - apache2
@@ -33,6 +33,7 @@
       - roundcube-core
       - roundcube-plugins
       - git
+      - composer
     state: present
     update_cache: true
   retries: 3
@@ -40,18 +41,24 @@
   register: _apt_roundcube
   until: _apt_roundcube is succeeded
 
-# --- Plugin OIDC (oidc_login) ------------------------------------------------
-- name: Cloner le plugin oidc_login
+# --- Plugin OIDC (pulsejet/roundcube-oidc) -----------------------------------
+- name: Cloner le plugin roundcube_oidc
   ansible.builtin.git:
     repo: "{{ roundcube_oidc_plugin_repo }}"
-    dest: "{{ roundcube_webroot }}/plugins/oidc_login"
+    dest: "{{ roundcube_webroot }}/plugins/roundcube_oidc"
     depth: 1
     version: HEAD
     update: false
 
-- name: Droits du plugin oidc_login (www-data)
+- name: Installer les dépendances PHP du plugin via composer
+  ansible.builtin.command: composer install --no-dev
+  args:
+    chdir: "{{ roundcube_webroot }}/plugins/roundcube_oidc"
+    creates: "{{ roundcube_webroot }}/plugins/roundcube_oidc/vendor/autoload.php"
+
+- name: Droits du plugin roundcube_oidc (www-data)
   ansible.builtin.file:
-    path: "{{ roundcube_webroot }}/plugins/oidc_login"
+    path: "{{ roundcube_webroot }}/plugins/roundcube_oidc"
     owner: www-data
     group: www-data
     recurse: true
@@ -69,15 +76,17 @@
       $config['smtp_user'] = '%u';
       $config['smtp_pass'] = '%p';
       $config['product_name'] = 'UniCampus Webmail';
-      // SSO Keycloak (OIDC) — cf. V2_scripts/install_oidc_roundcube.sh
-      $config['plugins'][] = 'oidc_login';
-      $config['oidc_login_client_id'] = '{{ roundcube_oidc_client_id }}';
-      $config['oidc_login_client_secret'] = '{{ oidc_secrets.roundcube }}';
-      $config['oidc_login_provider'] = '{{ keycloak_issuer_url }}';
-      $config['oidc_login_scopes'] = array('openid', 'email', 'profile');
-      $config['oidc_login_redirect_uri'] = '{{ roundcube_oidc_redirect_uri }}';
-      $config['oidc_login_logout_redirect_uri'] = 'https://mail.unicampus.fr/';
-      $config['oidc_login_auto_login'] = false;
+      
+      // SSO Keycloak (OIDC) via le plugin pulsejet/roundcube-oidc
+      $config['plugins'][] = 'roundcube_oidc';
+      $config['oidc_url'] = '{{ keycloak_issuer_url }}';
+      $config['oidc_client'] = '{{ roundcube_oidc_client_id }}';
+      $config['oidc_secret'] = '{{ oidc_secrets.roundcube }}';
+      $config['oidc_scope'] = 'openid email profile';
+      $config['oidc_field_uid'] = 'email';
+      
+      // Master password pour l'authentification Dovecot en arrière-plan
+      $config['oidc_imap_master_password'] = 'SuperMotDePasseMaster';
   notify: restart apache2
 
 # --- Apache : Roundcube à la racine (https://mail.unicampus.fr/) -------------

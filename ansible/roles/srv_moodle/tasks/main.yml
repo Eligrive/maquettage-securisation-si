@@ -74,6 +74,17 @@
   notify: restart apache2
 
 # --- Récupération de Moodle (clone uniquement si absent) --------------------
+- name: Vérifier si Moodle est déjà configuré (config.php présent)
+  ansible.builtin.stat:
+    path: /var/www/html/moodle/config.php
+  register: _moodle_config
+
+- name: Nettoyer le dossier s'il est corrompu ou incomplet
+  ansible.builtin.file:
+    path: /var/www/html/moodle
+    state: absent
+  when: not _moodle_config.stat.exists
+
 - name: Cloner Moodle ({{ moodle_branch }})
   ansible.builtin.git:
     repo: "https://github.com/moodle/moodle.git"
@@ -81,6 +92,7 @@
     version: "{{ moodle_branch }}"
     depth: 1
     update: false
+  when: not _moodle_config.stat.exists
 
 - name: Créer le moodledata et fixer les droits (permissif, vuln volontaire)
   ansible.builtin.file:
