@@ -25,6 +25,7 @@
     owner: root
     group: root
     mode: "0644"
+  become: true
   notify: restart ssh
 
 # Filet de sécurité si une distrib n'honore pas sshd_config.d.
@@ -33,4 +34,5 @@
     path: /etc/ssh/sshd_config
     regexp: '^#?\s*PasswordAuthentication\s+.*$'
     replace: "PasswordAuthentication no"
+  become: true
   notify: restart ssh
