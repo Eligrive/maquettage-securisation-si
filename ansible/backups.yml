@@ -18,6 +18,7 @@
 - name: Serveur de sauvegarde immuable (rest-server append-only)
   hosts: backup_server
   gather_facts: true
+  become: true
   roles:
     - { role: backup_server, tags: [backups, backup-server] }
 
@@ -25,5 +26,6 @@
 - name: Clients de sauvegarde (restic -> dépôt immuable)
   hosts: backup_clients
   gather_facts: true
+  become: true
   roles:
     - { role: backups, tags: [backups] }

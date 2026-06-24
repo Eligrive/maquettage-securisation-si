@@ -34,6 +34,7 @@
 - name: SIEM — Wazuh all-in-one (manager + indexer + dashboard)
   hosts: siem
   gather_facts: true
+  become: true
   roles:
     - role: wazuh_manager
       tags: [siem, manager]
@@ -41,6 +42,7 @@
 - name: IDS/IPS — sonde Suricata sur le firewall central
   hosts: firewall
   gather_facts: true
+  become: true
   roles:
     - role: suricata_ids
       tags: [ids, suricata]
@@ -48,6 +50,7 @@
 - name: Agents — Wazuh HIDS + collecte de logs sur tous les hôtes supervisés
   hosts: agents
   gather_facts: true
+  become: true
   roles:
     - role: wazuh_agent
       tags: [agents]
