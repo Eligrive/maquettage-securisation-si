@@ -1,0 +1,55 @@
+---
+# ============================================================================
+#  Rôle backup_server — rest-server restic en append-only — §5.2/M22
+# ============================================================================
+
+- name: Créer l'utilisateur de service restic
+  ansible.builtin.user:
+    name: restic
+    system: true
+    create_home: false
+    shell: /usr/sbin/nologin
+
+- name: Créer le répertoire de données du dépôt
+  ansible.builtin.file:
+    path: "{{ backup_server_data_dir }}"
+    state: directory
+    owner: restic
+    group: restic
+    mode: "0700"
+
+- name: Télécharger rest-server (binaire officiel)
+  ansible.builtin.unarchive:
+    src: "https://github.com/restic/rest-server/releases/download/v{{ backup_server_version }}/rest-server_{{ backup_server_version }}_linux_amd64.tar.gz"
+    dest: /tmp
+    remote_src: true
+    creates: "/tmp/rest-server_{{ backup_server_version }}_linux_amd64/rest-server"
+  retries: 3
+  delay: 10
+  register: _restsrv_dl
+  until: _restsrv_dl is succeeded
+
+- name: Installer le binaire rest-server
+  ansible.builtin.copy:
+    src: "/tmp/rest-server_{{ backup_server_version }}_linux_amd64/rest-server"
+    dest: /usr/local/bin/rest-server
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Déployer l'unité systemd rest-server (append-only)
+  ansible.builtin.template:
+    src: rest-server.service.j2
+    dest: /etc/systemd/system/rest-server.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart rest-server
+
+- name: Activer et démarrer rest-server
+  ansible.builtin.systemd:
+    name: rest-server
+    state: started
+    enabled: true
+    daemon_reload: true

@@ -1,0 +1,8 @@
+[Unit]
+Description=Sauvegarde immuable UniCampus (restic) — {{ inventory_hostname }}
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/uc-backup

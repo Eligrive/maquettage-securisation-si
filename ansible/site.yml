@@ -13,6 +13,8 @@
 #                               calc | vpn | postes
 #   2. supervision.yml — lot v2 Supervision : SIEM Wazuh + IDS/IPS Suricata.
 #                        Tags : siem | ids | agents
+#   3. backups.yml     — lot v2 Sauvegardes immuables (restic append-only).
+#                        Tags : backups | backup-server
 #
 # Terraform fournit l'INFRASTRUCTURE (VM, réseau, FIP) + un cloud-init minimal ;
 # Ansible fait tout le provisioning logiciel, idempotent et rejouable.
@@ -23,7 +25,8 @@
 #       -e ssh_jump_host="ubuntu@<FIP_fw-legacy>" \
 #       -e moodle_wwwroot="http://<FIP_moodle>"
 #
-# Pour ne jouer qu'un lot : provision.yml ou supervision.yml directement.
+# Pour ne jouer qu'un lot : provision.yml, supervision.yml ou backups.yml.
 
 - import_playbook: provision.yml
 - import_playbook: supervision.yml
+- import_playbook: backups.yml

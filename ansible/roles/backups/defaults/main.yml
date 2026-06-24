@@ -1,0 +1,32 @@
+---
+# ============================================================================
+#  Rôle backups — sauvegardes automatiques IMMUABLES (restic) — V2
+# ============================================================================
+# Remédiation §5.2 / M22 : sauvegardes automatisées, versionnées, HORS HÔTE et
+# IMMUABLES. Contre-mesure directe à SO2 (rançongiciel) et SO6 (destruction par
+# vengeance) : même root sur la machine, l'attaquant ne peut NI chiffrer NI
+# supprimer les sauvegardes (dépôt restic en mode APPEND-ONLY côté serveur).
+
+# Dépôt restic. Cible IMMUABLE obligatoire :
+#   - rest-server lancé en --append-only (cf. rôle backup_server), ou
+#   - bucket S3 avec Object Lock (WORM).
+# Le mot de passe chiffre le dépôt (restic = chiffré de bout en bout).
+backup_repo_url: "rest:http://192.168.109.1:8000/"
+backup_password: "UniCampus_Restic_2026_Immutable"
+
+# Politique de rétention (restic forget --prune). La purge est exécutée par le
+# SERVEUR (prune privilégié) ; les clients en append-only ne suppriment rien.
+backup_keep_daily: 7
+backup_keep_weekly: 4
+backup_keep_monthly: 6
+
+# Planification (OnCalendar systemd). Quotidien tôt le matin par défaut.
+backup_schedule: "*-*-* 02:30:00"
+
+# Répertoires de données à sauvegarder (défini par host_vars).
+backup_paths: []
+
+# Commande optionnelle exécutée AVANT la sauvegarde pour produire un dump
+# cohérent (mysqldump, pg_dump, slapcat...) dans {{ backup_staging_dir }}.
+backup_predump: ""
+backup_staging_dir: "/var/backups/uc"

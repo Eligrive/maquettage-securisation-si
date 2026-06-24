@@ -1,0 +1,31 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Sauvegarde immuable UniCampus (restic). §5.2/M22 — contre SO2/SO6.
+set -euo pipefail
+set -a
+. /etc/uc-backup.env
+set +a
+
+STAGING="{{ backup_staging_dir }}"
+mkdir -p "$STAGING"
+
+{% if backup_predump | length > 0 %}
+# --- Dump cohérent applicatif (DB/annuaire) avant l'archivage ---------------
+{{ backup_predump }}
+{% endif %}
+
+# --- Sauvegarde (chiffrée, dédupliquée). Le dépôt distant est APPEND-ONLY :
+#     un attaquant root local ne peut ni altérer ni supprimer l'historique. ---
+restic backup --tag uc-{{ inventory_hostname }} \
+  "$STAGING" \
+{% for p in backup_paths %}
+  "{{ p }}"{% if not loop.last %} \{% endif %}
+
+{% endfor %}
+
+# Rétention : demandée par le client, mais la PURGE réelle (prune) est faite
+# côté serveur (les clients append-only n'ont pas le droit de supprimer).
+restic forget \
+  --keep-daily {{ backup_keep_daily }} \
+  --keep-weekly {{ backup_keep_weekly }} \
+  --keep-monthly {{ backup_keep_monthly }} || true
