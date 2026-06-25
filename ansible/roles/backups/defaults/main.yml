@@ -10,9 +10,10 @@
 # Dépôt restic. Cible IMMUABLE obligatoire :
 #   - rest-server lancé en --append-only (cf. rôle backup_server), ou
 #   - bucket S3 avec Object Lock (WORM).
-# Le mot de passe chiffre le dépôt (restic = chiffré de bout en bout).
 backup_repo_url: "rest:http://192.168.109.1:8000/"
-backup_password: "UniCampus_Restic_2026_Immutable"
+# Le mot de passe chiffre le dépôt (restic = chiffré de bout en bout). Il est
+# PARTAGÉ avec le serveur (qui initialise le dépôt) -> centralisé dans
+# group_vars/all.yml (clé backup_password).
 
 # Politique de rétention (restic forget --prune). La purge est exécutée par le
 # SERVEUR (prune privilégié) ; les clients en append-only ne suppriment rien.

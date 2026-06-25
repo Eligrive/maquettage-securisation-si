@@ -33,14 +33,12 @@
       RESTIC_PASSWORD={{ backup_password }}
   no_log: true
 
-- name: Initialiser le dépôt restic (si nécessaire, idempotent)
-  ansible.builtin.shell:
-    cmd: 'set -a; . /etc/uc-backup.env; restic snapshots >/dev/null 2>&1 || restic init'
-  register: _restic_init
-  changed_when: "'created restic repository' in _restic_init.stdout"
-  failed_when:
-    - _restic_init.rc != 0
-    - "'already initialized' not in (_restic_init.stderr | default(''))"
+# NB : le dépôt restic n'est PAS initialisé ici. Le rest-server est en
+# --append-only et refuse l'init/écriture de clé sur un dépôt existant (HTTP 403),
+# et une init concurrente depuis plusieurs clients sur le dépôt UNIQUE et PARTAGÉ
+# est une course (un seul gagne, les autres -> 403). L'init est donc faite UNE
+# fois, côté serveur, sur le disque local (rôle backup_server, joué en premier
+# dans backups.yml). Les clients se contentent de DÉPOSER (mode append-only).
 
 - name: Déposer le script de sauvegarde
   ansible.builtin.template:

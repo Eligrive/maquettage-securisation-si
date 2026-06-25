@@ -49,6 +49,19 @@ wazuh_version: "4.9"
 wazuh_manager_address: "192.168.109.1"
 
 # ============================================================================
+#  Lot V2 — Sauvegardes immuables (restic) — §5.2 / M22
+# ============================================================================
+# Secret PARTAGÉ du dépôt restic UNIQUE (cf. backups.yml). Centralisé ici car il
+# est utilisé des DEUX côtés :
+#   - le SERVEUR (rôle backup_server) initialise le dépôt sur disque local avec
+#     ce mot de passe (l'init via HTTP est impossible : le rest-server est en
+#     --append-only et refuse toute écriture sur un dépôt existant) ;
+#   - les CLIENTS (rôle backups) l'utilisent pour chiffrer et déposer.
+# Même valeur des deux côtés (dépôt restic unique, distingué par --tag uc-<host>).
+# ⚠️ Secret en clair ASSUMÉ (maquette) ; en prod -> ansible-vault.
+backup_password: "UniCampus_Restic_2026_Immutable"
+
+# ============================================================================
 #  Lot V2 — IAM (Keycloak SSO + bastion Teleport) & PKI interne
 # ============================================================================
 #  Variables PARTAGÉES par les rôles pki / reverse_proxy / keycloak /
