@@ -157,7 +157,7 @@ create_client() {
 }
 
 create_client "moodle-client"    "{{ oidc_secrets.moodle }}"    "https://moodle.unicampus.fr/auth/oidc/"               "no"
-create_client "roundcube-client" "{{ oidc_secrets.roundcube }}" "https://mail.unicampus.fr/"      "no"
+create_client "roundcube-client" "{{ oidc_secrets.roundcube }}" "https://mail.unicampus.fr/*"     "no"
 create_client "webrh-client"     "{{ oidc_secrets.webrh }}"     "https://webrh.unicampus.fr/auth-callback https://rh.unicampus.fr/auth-callback" "yes"
 create_client "teleport-bastion" "{{ oidc_secrets.teleport }}"  "https://bastion.unicampus.fr/v1/webapi/oidc/callback" "yes"
 # Wazuh dashboard (OpenSearch security OIDC). Le callback du dashboard est

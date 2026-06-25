@@ -1,0 +1,17 @@
+<?php
+// {{ ansible_managed }}
+// Configuration PROPRE du plugin pulsejet/roundcube-oidc. Cette config prime sur
+// /etc/roundcube/config.inc.php : c'est ici que doivent vivre les paramètres OIDC
+// (sinon le config.inc.php.dist du plugin -> oidc.example.com l'emporte).
+$config['oidc_url'] = '{{ keycloak_issuer_url }}';
+$config['oidc_client'] = '{{ roundcube_oidc_client_id }}';
+$config['oidc_secret'] = '{{ oidc_secrets.roundcube }}';
+$config['oidc_scope'] = 'openid email profile';
+// UID = preferred_username (uid Keycloak, nom COURT type « jmoreau ») et NON
+// 'email' : les comptes LDAP n'ont pas forcément d'attribut mail -> claim email
+// vide -> Roundcube se connecte à Dovecot avec user=<> (« no auth attempts ») et
+// échoue. preferred_username est toujours présent et matche le compte système.
+$config['oidc_field_uid'] = 'preferred_username';
+// Master password pour l'authentification Dovecot en arrière-plan (cf. srv_mail
+// : passdb static restreinte à l'IP du webmail).
+$config['oidc_imap_master_password'] = 'SuperMotDePasseMaster';

@@ -22,3 +22,15 @@ roundcube_config: "/etc/roundcube/config.inc.php"
 roundcube_oidc_plugin_repo: "https://github.com/pulsejet/roundcube-oidc.git"
 roundcube_oidc_client_id: "roundcube-client"
 roundcube_oidc_redirect_uri: "https://mail.unicampus.fr/"
+
+# --- Base de données SQLite locale ------------------------------------------
+# REMÉDIATION (« oops something went wrong » / DB Error SQLSTATE[2002] No such
+# file or directory) : le pré-seed debconf sqlite3 n'a pas pris -> db_dsnw est
+# resté sur MySQL (socket absent, pas de serveur MySQL sur cet hôte). On câble
+# donc explicitement SQLite. Fichier placé HORS du DocumentRoot (= webroot) pour
+# qu'il ne soit pas téléchargeable via le vhost.
+roundcube_db_dir: "/var/local/roundcube"
+roundcube_db_path: "/var/local/roundcube/roundcube.db"
+roundcube_db_dsnw: "sqlite:///{{ roundcube_db_path }}?mode=0640"
+# Schéma initial fourni par le paquet roundcube-core.
+roundcube_db_sqlite_schema: "/usr/share/roundcube/SQL/sqlite.initial.sql"
