@@ -40,9 +40,25 @@ kc create roles -r "$REALM" -s name="{{ role }}" 2>/dev/null \
 # ---------------------------------------------------------------------------
 # 3. Groupes (organigramme) + assignation du rôle realm
 # ---------------------------------------------------------------------------
+#  REMÉDIATION (logs PostgreSQL : « duplicate key value violates unique
+#  constraint "sibling_names" ... (Etudiants) already exists ») : on ne
+#  recrée PLUS un groupe à l'aveugle. On interroge d'abord l'annuaire
+#  (kcadm get + filtre serveur `search`, confirmé par un nom EXACT) et on ne
+#  crée que s'il est absent. La création n'est donc plus masquée par un
+#  `2>/dev/null || true` : une vraie erreur (réseau, droits) remonte désormais.
+group_exists() {
+  kc get groups -r "$REALM" -q "search=$1" --fields name --format csv 2>/dev/null \
+    | tr -d '"' | grep -qx "$1"
+}
 {% for g in keycloak_groups %}
-kc create groups -r "$REALM" -s name="{{ g.name }}" 2>/dev/null \
-  && echo "CREATED: group {{ g.name }}" || true
+if group_exists "{{ g.name }}"; then
+  echo "[=] Groupe {{ g.name }} déjà présent."
+else
+  echo "CREATED: group {{ g.name }}"
+  kc create groups -r "$REALM" -s name="{{ g.name }}"
+fi
+# add-roles est idempotent côté Keycloak (réassigner un rôle déjà présent est un
+# no-op) : on tolère donc un échec « déjà assigné » sans masquer la 1re passe.
 kc add-roles -r "$REALM" --gname "{{ g.name }}" --rolename "{{ g.role }}" 2>/dev/null || true
 {% endfor %}
 

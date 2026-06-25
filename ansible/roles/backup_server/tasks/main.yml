@@ -18,6 +18,44 @@
     group: restic
     mode: "0700"
 
+# Initialisation du dépôt UNE SEULE FOIS, ici, sur le DISQUE LOCAL. C'est le
+# point clé : le rest-server tourne en --append-only et refuse toute création
+# de clé/config sur un dépôt déjà existant (-> HTTP 403). Les clients ne peuvent
+# donc PAS l'initialiser de façon fiable (course à l'init concurrente). On l'init
+# côté serveur via le système de fichiers (qui contourne la couche HTTP), puis
+# les clients se contentent de DÉPOSER (rôle backups). cf. backups.yml.
+- name: Installer restic (pour initialiser le dépôt localement)
+  ansible.builtin.apt:
+    name: restic
+    state: present
+    update_cache: true
+  retries: 3
+  delay: 10
+  register: _apt_restic_srv
+  until: _apt_restic_srv is succeeded
+
+- name: Initialiser le dépôt restic sur le disque local (idempotent)
+  ansible.builtin.command:
+    cmd: "restic -r {{ backup_server_data_dir }} init"
+  environment:
+    RESTIC_PASSWORD: "{{ backup_password }}"
+  register: _restic_srv_init
+  changed_when: "'created restic repository' in _restic_srv_init.stdout"
+  failed_when:
+    - _restic_srv_init.rc != 0
+    - "'already initialized' not in (_restic_srv_init.stderr | default(''))"
+    - "'already exists' not in (_restic_srv_init.stderr | default(''))"
+
+# Init exécutée en root -> on rend le dépôt au service restic, sinon le
+# rest-server (qui tourne en tant que 'restic') ne peut ni lire ni servir.
+- name: S'assurer que le dépôt appartient au service restic
+  ansible.builtin.file:
+    path: "{{ backup_server_data_dir }}"
+    state: directory
+    owner: restic
+    group: restic
+    recurse: true
+
 - name: Télécharger rest-server (binaire officiel)
   ansible.builtin.unarchive:
     src: "https://github.com/restic/rest-server/releases/download/v{{ backup_server_version }}/rest-server_{{ backup_server_version }}_linux_amd64.tar.gz"

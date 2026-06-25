@@ -153,6 +153,17 @@
 # ============================================================================
 #  V2 — Reverse proxy HTTPS : Moodle est derrière un proxy qui termine le TLS
 # ============================================================================
+#  REMÉDIATION (curl -kI -> « Location: http://137.194.210.214/ ») : si install.php
+#  a été lancé avec une IP (surcharge V1 `-e moodle_wwwroot=http://<FIP>`), wwwroot
+#  est figé sur l'IP et casse le tunnel SSO. On le ré-aligne sur le FQDN public.
+- name: Forcer wwwroot sur le FQDN public (derrière le reverse proxy)
+  ansible.builtin.lineinfile:
+    path: /var/www/html/moodle/config.php
+    regexp: '^\$CFG->wwwroot\s*='
+    line: "$CFG->wwwroot = '{{ moodle_wwwroot }}';"
+  failed_when: false
+  notify: purge moodle caches
+
 - name: Moodle derrière le reverse proxy (sslproxy)
   ansible.builtin.lineinfile:
     path: /var/www/html/moodle/config.php
@@ -160,6 +171,8 @@
     line: "$CFG->sslproxy = true;"
     regexp: '^\$CFG->sslproxy'
   failed_when: false
+  # Sans purge, Moodle continue de servir l'ancien wwwroot mis en cache (-> IP).
+  notify: purge moodle caches
 
 # ============================================================================
 #  V2 — SSO Keycloak (plugin auth_oidc) — cf. V2_scripts/install_oidc_moodle.sh
@@ -169,7 +182,7 @@
     repo: "{{ moodle_oidc_plugin_repo }}"
     dest: /var/www/html/moodle/auth/oidc
     depth: 1
-    version: HEAD
+    version: "{{ moodle_oidc_plugin_version }}"
     update: false
   register: _moodle_oidc_clone
 

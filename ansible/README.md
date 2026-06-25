@@ -18,6 +18,7 @@ du SI modélisé. Ce dossier couvre **deux lots** :
    | Calcul recherche (NFS/Samba/PostgreSQL/Jupyter) | `uc-calc-recherche` | `calc_recherche` |
    | VPN PPTP | `uc-vpn-legacy` | `vpn_legacy` |
    | Postes étudiant / prof / DSI | `uc-poste-*` | `poste` |
+   | Bureau distant TigerVNC + XFCE (démos, accès via tunnel SSH) | `uc-poste-etu`, `uc-poste-dsi` | `vnc_server` |
    | Comptes cred-reuse + leurres PDF (transverses) | (selon hôte) | `common`, `maquette_accounts`, `loot` |
 
 2. **Supervision v2** (`supervision.yml`) — SIEM Wazuh + IDS/IPS Suricata :

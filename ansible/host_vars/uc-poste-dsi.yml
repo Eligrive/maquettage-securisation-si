@@ -10,6 +10,11 @@ poste_packages:
   - nfs-common
   - smbclient
 
+# Bureau distant TigerVNC (rôle vnc_server) — accès graphique pour démos/tests
+# via tunnel SSH. Écoute sur 127.0.0.1:5901 uniquement (display :1).
+#   ssh -J ubuntu@<FIP_firewall> -L 5901:127.0.0.1:5901 ubuntu@192.168.103.1 -N
+vnc_enabled: true
+
 # Comptes : 'ubuntu' = compte d'automatisation IaC (sudo NOPASSWD, conservé pour
 # Ansible/Terraform) ; 'jmoreau' = admin DSI NOMINATIF avec sudo à mot de passe.
 # V2 : plus de compte partagé 'dsi' (§2.5).

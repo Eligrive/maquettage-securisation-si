@@ -10,3 +10,10 @@
     name: apache2
     state: restarted
     enabled: true
+
+# Vide les caches Moodle (config/thème) après une modif de config.php. Sans ça,
+# Moodle continue de servir l'ancien wwwroot/sslproxy mis en cache dans muc/moodledata.
+- name: purge moodle caches
+  ansible.builtin.command:
+    cmd: sudo -u www-data php /var/www/html/moodle/admin/cli/purge_caches.php
+  changed_when: true

@@ -1,0 +1,87 @@
+---
+# ============================================================================
+#  Rôle vnc_server — bureau distant TigerVNC + XFCE (accès via tunnel SSH)
+# ============================================================================
+# Tout est conditionné par vnc_enabled : le rôle peut être listé sur tout le
+# groupe [postes], il ne s'exécute que là où host_vars définit vnc_enabled: true.
+
+- name: Bureau distant VNC (TigerVNC + XFCE)
+  when: vnc_enabled | bool
+  block:
+
+    - name: Installer le serveur TigerVNC
+      ansible.builtin.apt:
+        name: "{{ vnc_server_packages }}"
+        state: present
+        update_cache: true
+      retries: 3
+      delay: 10
+      register: _apt_vnc_server
+      until: _apt_vnc_server is succeeded
+
+    - name: Installer l'environnement de bureau XFCE
+      ansible.builtin.apt:
+        name: "{{ vnc_de_packages }}"
+        state: present
+        update_cache: true
+      retries: 3
+      delay: 10
+      register: _apt_vnc_de
+      until: _apt_vnc_de is succeeded
+
+    - name: Créer le répertoire ~/.vnc
+      ansible.builtin.file:
+        path: "{{ vnc_home }}/.vnc"
+        state: directory
+        owner: "{{ vnc_user }}"
+        group: "{{ vnc_user }}"
+        mode: "0700"
+
+    # Idempotent via « creates » : la rotation du mot de passe se fait en
+    # supprimant ~/.vnc/passwd (ou -e vnc_force_passwd=true) avant de rejouer.
+    - name: Supprimer l'ancien mot de passe VNC (rotation forcée)
+      ansible.builtin.file:
+        path: "{{ vnc_home }}/.vnc/passwd"
+        state: absent
+      when: vnc_force_passwd | default(false) | bool
+
+    - name: Générer le mot de passe VNC ({{ vnc_user }})
+      ansible.builtin.shell:
+        cmd: "set -o pipefail && echo '{{ vnc_password }}' | vncpasswd -f > '{{ vnc_home }}/.vnc/passwd'"
+        creates: "{{ vnc_home }}/.vnc/passwd"
+      args:
+        executable: /bin/bash
+      no_log: true
+      notify: restart vncserver
+
+    - name: Sécuriser le fichier de mot de passe VNC
+      ansible.builtin.file:
+        path: "{{ vnc_home }}/.vnc/passwd"
+        owner: "{{ vnc_user }}"
+        group: "{{ vnc_user }}"
+        mode: "0600"
+
+    - name: Déployer le script de démarrage de session (~/.vnc/xstartup)
+      ansible.builtin.template:
+        src: xstartup.j2
+        dest: "{{ vnc_home }}/.vnc/xstartup"
+        owner: "{{ vnc_user }}"
+        group: "{{ vnc_user }}"
+        mode: "0755"
+      notify: restart vncserver
+
+    - name: Déployer l'unité systemd TigerVNC (template @)
+      ansible.builtin.template:
+        src: vncserver@.service.j2
+        dest: /etc/systemd/system/vncserver@.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: restart vncserver
+
+    - name: Activer et démarrer le serveur VNC ({{ vnc_user }} sur :{{ vnc_display }})
+      ansible.builtin.systemd:
+        name: "vncserver@{{ vnc_display }}.service"
+        state: started
+        enabled: true
+        daemon_reload: true

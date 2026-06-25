@@ -1,0 +1,12 @@
+---
+# Redémarrage conditionnel des services qui mettent en cache le magasin CA.
+# `ca_trust_reload_targets` est calculé dans tasks/main.yml : il ne contient que
+# les unités RÉELLEMENT présentes sur cet hôte (peut être vide -> no-op). Ce
+# handler n'est notifié que lorsque le CA a effectivement changé (idempotence).
+- name: reload services post ca-trust
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: restarted
+  loop: "{{ ca_trust_reload_targets | default([]) }}"
+  loop_control:
+    label: "{{ item }}"

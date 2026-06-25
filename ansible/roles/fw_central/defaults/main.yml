@@ -77,3 +77,17 @@ fw_forward_rules:
   - { name: "keycloak -> ldap", src: "192.168.107.3", dst: "192.168.104.1", proto: tcp, dports: "389,636" }
   # Bastion Teleport : les agents (infra/DB) s'enrôlent et tunnellent vers lui.
   - { name: "-> bastion teleport", dst: "192.168.103.2", proto: tcp, dports: "3022,3023,3024,3025,3080" }
+
+# --- Journalisation des paquets refusés (preuve de la segmentation) ----------
+# Sans règle LOG explicite, la policy DROP de FORWARD jette les paquets EN
+# SILENCE : rien n'apparaît dans syslog/kern.log et `tail | grep` reste vide.
+# On ajoute donc une règle LOG rate-limitée TOUT À LA FIN de FORWARD : seuls les
+# paquets qui n'ont matché AUCUNE règle ACCEPT y parviennent (= ceux qui vont
+# être droppés par la policy juste après). Le rate-limit évite de noyer le disque
+# sous un scan. Préfixe greppable -> démo live à la soutenance :
+#   sudo tail -f /var/log/kern.log | grep --line-buffered 'UC-FW-DROP'
+fw_log_dropped: true
+fw_log_prefix: "[UC-FW-DROP] "
+fw_log_level: "warning" # -> /var/log/kern.log et /var/log/syslog
+fw_log_limit: "5/min"
+fw_log_limit_burst: 10

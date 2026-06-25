@@ -131,6 +131,14 @@ resource "openstack_compute_instance_v2" "siem" {
   key_pair          = openstack_compute_keypair_v2.admin.name
   availability_zone = "cisco" # zone par défaut "nova" saturée (cf. instances.tf)
 
+  # config_drive : livre les métadonnées (dont la CLÉ SSH du keypair) via un
+  # disque local, sans dépendre du service de métadonnées réseau (169.254.169.254).
+  # Indispensable ici : contrairement aux VLAN internes (isolés, métadonnées
+  # servies par l'agent DHCP), le SOC est rattaché au routeur Neutron, qui ne sert
+  # pas l'isolated-metadata -> sans config_drive cloud-init n'injecte PAS la clé et
+  # SSH renvoie « Permission denied (publickey) ».
+  config_drive = true
+
   # Provisioning minimal : Ansible installe Wazuh. cloud-init garantit juste
   # SSH/Python (le SOC est routé par Neutron, route par défaut native).
   user_data = local.siem_user_data

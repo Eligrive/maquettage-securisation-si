@@ -79,6 +79,14 @@
   ansible.builtin.meta: flush_handlers
 
 # --- 4. Resources OIDC + rôles RBAC (cf. setup_oidc_teleport.sh) -------------
+- name: Créer le répertoire des resources Teleport
+  ansible.builtin.file:
+    path: "{{ teleport_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
 - name: Déposer les resources Teleport (connecteur OIDC + rôles RBAC)
   ansible.builtin.template:
     src: "{{ item }}.j2"
