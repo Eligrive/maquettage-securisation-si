@@ -50,3 +50,15 @@
     replace: "PasswordAuthentication no"
   become: true
   notify: restart ssh
+
+# Garde-fou « production » : on NE redémarre JAMAIS sshd sur une config invalide
+# (sinon plus de SSH du tout, donc plus d'Ansible). `sshd -t` valide l'ensemble
+# (sshd_config + drop-ins sshd_config.d) AVANT que le handler `restart ssh` ne
+# tourne en fin de play. Chemin absolu : /usr/sbin n'est pas dans le PATH non
+# interactif d'Ansible. NB : sous Ubuntu le service est `ssh` (le nommage
+# RedHat `sshd` n'existe pas -> « Unit sshd.service could not be found »).
+- name: Valider la configuration SSH avant tout redémarrage (sshd -t)
+  ansible.builtin.command:
+    cmd: /usr/sbin/sshd -t
+  become: true
+  changed_when: false

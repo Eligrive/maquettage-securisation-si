@@ -171,6 +171,24 @@
     label: "{{ item.name }}"
   notify: save iptables
 
+# --- Journalisation des paquets refusés (dernière règle de FORWARD) ----------
+# Appended APRÈS toutes les règles ACCEPT : un paquet autorisé a déjà sauté en
+# ACCEPT et quitté la chaîne, donc seuls les paquets voués à la policy DROP
+# atteignent ce LOG. Rate-limité (anti-flood). Préfixe = filtre de la démo live.
+# Idempotent : le module iptables matche la règle existante (pas de doublon).
+- name: FORWARD - journaliser les paquets refusés (segmentation, rate-limit)
+  ansible.builtin.iptables:
+    chain: FORWARD
+    jump: LOG
+    log_prefix: "{{ fw_log_prefix }}"
+    log_level: "{{ fw_log_level }}"
+    limit: "{{ fw_log_limit }}"
+    limit_burst: "{{ fw_log_limit_burst | string }}"
+    action: append
+    comment: "uc log dropped"
+  when: fw_log_dropped | bool
+  notify: save iptables
+
 # --- DNAT ingress (FIP -> service interne) ----------------------------------
 - name: DNAT ingress vers les services internes
   ansible.builtin.iptables:
