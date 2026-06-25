@@ -186,3 +186,18 @@
         marker: "# {mark} ANSIBLE MANAGED: SSO Keycloak (UniCampus)"
         block: "{{ lookup('template', 'dashboard_oidc.yml.j2') }}"
       notify: restart wazuh-dashboard
+
+    # Le dashboard est Type=simple : `systemctl restart` rend la main dès le fork,
+    # AVANT un éventuel crash de validation de conf (~37 s plus tard). On force donc
+    # le restart maintenant puis on VÉRIFIE qu'il reste actif, sinon un SIEM
+    # silencieusement HS passerait inaperçu (cf. incident auth.type en tableau).
+    - name: SSO — appliquer le redémarrage du dashboard immédiatement
+      ansible.builtin.meta: flush_handlers
+
+    - name: SSO — vérifier que le dashboard RESTE actif (conf OIDC valide)
+      ansible.builtin.command: systemctl is-active wazuh-dashboard
+      register: _wazuh_dash_active
+      changed_when: false
+      retries: 10
+      delay: 10
+      until: _wazuh_dash_active.stdout == "active"
