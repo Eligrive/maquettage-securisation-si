@@ -12,15 +12,21 @@
 # forwarding + NAT (gateway de tous les VLAN), sans quoi les autres VMs n'ont pas
 # d'accès Internet et leurs apt-get échouent.
 #
-# Exécution :
+# Exécution (topologie V2 segmentée) :
 #   cd ansible/
 #   ansible-playbook provision.yml \
-#       -e ssh_jump_host="ubuntu@<FIP_firewall>" \
-#       -e moodle_wwwroot="http://<FIP_moodle>"
+#       -e ssh_jump_host="ubuntu@<FIP_firewall>"
+#
+# ⚠️ NE PAS surcharger moodle_wwwroot en V2 : le défaut du rôle
+# (https://moodle.unicampus.fr, servi par le reverse proxy) est ce qu'il faut.
+# Forcer -e moodle_wwwroot="http://<FIP_moodle>" (vestige V1) fige Moodle sur
+# l'IP publique en HTTP -> redirection hors HTTPS + SSO cassé (« https pas
+# configuré »). L'override n'a de sens qu'en topologie FLAT V1 sans proxy.
 #
 # (Topologie FLAT V1 historique : inventory/hosts.flat.ini + rôle fw_legacy.)
 #
-# Tags base : fw | ldap | mail | db-rh | web-rh | moodle | calc | vpn | postes.
+# Tags base : fw | ldap | mail | db-rh | web-rh | moodle | calc | vpn | postes |
+#             vnc | chrome (navigateur + confiance PKI dans NSS).
 # Tags V2 IAM/PKI : pki | certs | ca | dns | proxy | sso | keycloak | roundcube |
 #                   bastion | teleport | iam.
 #   ex. ne (re)jouer que la PKI + le reverse proxy : --tags pki,proxy
@@ -189,4 +195,8 @@
     - { role: vnc_server, tags: [vnc, postes] }
     # V2 : les postes approuvent la CA interne et résolvent *.unicampus.fr.
     - { role: ca_trust, tags: [pki, ca, iam] }
+    # Navigateur Chrome + confiance PKI dans NSS (Chrome n'utilise PAS le magasin
+    # système : sans ça, ERR_CERT_AUTHORITY_INVALID sur *.unicampus.fr). APRÈS
+    # ca_trust (réutilise son rootCA.crt). Gating chrome_enabled = vnc_enabled.
+    - { role: chrome_browser, tags: [chrome, browser, postes] }
     - { role: unicampus_dns, tags: [dns, iam] }

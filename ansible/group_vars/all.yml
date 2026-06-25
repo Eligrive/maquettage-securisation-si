@@ -93,6 +93,7 @@ iam_vhosts:
   - { fqdn: "rh.unicampus.fr", backend: "http://192.168.104.2:80" }          # Web RH
   - { fqdn: "webrh.unicampus.fr", backend: "http://192.168.104.2:80" }       # Web RH (alias redirect OIDC)
   - { fqdn: "bastion.unicampus.fr", backend: "https://192.168.103.2:3080" }  # Teleport (TLS interne)
+  - { fqdn: "wazuh.unicampus.fr", backend: "https://192.168.109.1:443" }     # Wazuh dashboard (TLS interne self-signed -> proxy_ssl_verify off)
 
 # --- Keycloak ---------------------------------------------------------------
 keycloak_internal_ip: "192.168.107.3"
@@ -148,6 +149,7 @@ oidc_secrets:
   roundcube: "Secret_Roundcube_OIDC_2024_Ultra_Securise"
   webrh: "Secret_WebRH_OIDC_2026_Ultra_Securise"
   teleport: "Secret_Teleport_OIDC_2024_Ultra_Securise"
+  wazuh: "Secret_Wazuh_OIDC_2026_Ultra_Securise"
 
 # --- Bastion Teleport -------------------------------------------------------
 teleport_version: "15"
@@ -182,6 +184,7 @@ pki_server_certs:
       - "rh.unicampus.fr"
       - "webrh.unicampus.fr"
       - "bastion.unicampus.fr"
+      - "wazuh.unicampus.fr"
   # LDAPS (port 636) sur uc-srv-ldap.
   - name: "ldap"
     cn: "srv-ldap.unicampus.local"

@@ -160,6 +160,10 @@ create_client "moodle-client"    "{{ oidc_secrets.moodle }}"    "https://moodle.
 create_client "roundcube-client" "{{ oidc_secrets.roundcube }}" "https://mail.unicampus.fr/"      "no"
 create_client "webrh-client"     "{{ oidc_secrets.webrh }}"     "https://webrh.unicampus.fr/auth-callback https://rh.unicampus.fr/auth-callback" "yes"
 create_client "teleport-bastion" "{{ oidc_secrets.teleport }}"  "https://bastion.unicampus.fr/v1/webapi/oidc/callback" "yes"
+# Wazuh dashboard (OpenSearch security OIDC). Le callback du dashboard est
+# {base_redirect_url}/auth/openid/login. with_mapper=yes : le claim `roles`
+# (rôles realm) est requis pour mapper Admin_DSI -> all_access côté indexer.
+create_client "wazuh-client"     "{{ oidc_secrets.wazuh }}"     "https://wazuh.unicampus.fr/auth/openid/login" "yes"
 
 # ---------------------------------------------------------------------------
 # 6. MFA : l'action requise « Configure OTP » est native/active dans le realm.

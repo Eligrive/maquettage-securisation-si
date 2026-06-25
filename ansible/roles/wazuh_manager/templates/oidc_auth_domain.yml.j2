@@ -1,0 +1,18 @@
+      openid_auth_domain:
+        description: "Keycloak OIDC - UniCampus SSO (Equipe_DSI)"
+        http_enabled: true
+        transport_enabled: true
+        order: 0
+        http_authenticator:
+          type: openid
+          challenge: false
+          config:
+            subject_key: {{ wazuh_sso_subject_key }}
+            roles_key: {{ wazuh_sso_roles_key }}
+            openid_connect_url: {{ wazuh_sso_connect_url }}
+            openid_connect_idp:
+              enable_ssl: true
+              verify_hostnames: true
+              pemtrustedcas_filepath: {{ wazuh_indexer_secconf_dir }}/unicampus-root.pem
+        authentication_backend:
+          type: noop

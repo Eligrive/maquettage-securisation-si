@@ -3,3 +3,8 @@
   ansible.builtin.systemd:
     name: wazuh-manager
     state: restarted
+
+- name: restart wazuh-dashboard
+  ansible.builtin.systemd:
+    name: wazuh-dashboard
+    state: restarted

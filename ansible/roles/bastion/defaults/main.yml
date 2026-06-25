@@ -14,9 +14,12 @@ teleport_cert_dir: "/var/lib/teleport/certs"
 teleport_cert_name: "bastion"
 
 # Connecteur OIDC : SSO Teleport via Keycloak. NB : les connecteurs OIDC/SAML
-# sont une fonctionnalité Teleport ENTERPRISE ; en édition OSS, utiliser le
-# connecteur GitHub. La config est déployée fidèlement aux scripts V2, et son
-# application est tolérante à l'échec (cf. teleport_oidc_required).
+# sont une fonctionnalité Teleport ENTERPRISE ; l'édition OSS ne supporte QUE le
+# connecteur GitHub (verrouillé sur github.com, inutilisable avec Keycloak). La
+# config OIDC est déployée fidèlement aux scripts V2 mais son application est
+# tolérante à l'échec (cf. teleport_oidc_required) : inopérante en OSS, conservée
+# telle quelle pour une éventuelle bascule Teleport Enterprise (où elle suffit à
+# activer le SSO Keycloak sans autre changement).
 teleport_oidc_required: false
 
 # Marqueur d'idempotence (application des resources tctl).

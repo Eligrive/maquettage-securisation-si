@@ -1,0 +1,13 @@
+# SSO Keycloak (OpenID Connect) — acces dashboard reserve a Equipe_DSI.
+# Multi-auth : on garde « basic » (admin local) comme filet anti-lock-out tant
+# que le SSO n'est pas valide en live. Retirer "basic" pour forcer le SSO seul.
+opensearch_security.auth.multiple_auth_enabled: true
+opensearch_security.auth.type: ["basic", "openid"]
+opensearch_security.openid.connect_url: "{{ wazuh_sso_connect_url }}"
+opensearch_security.openid.client_id: "{{ wazuh_sso_client_id }}"
+opensearch_security.openid.client_secret: "{{ wazuh_sso_client_secret }}"
+opensearch_security.openid.base_redirect_url: "{{ wazuh_sso_base_redirect_url }}"
+opensearch_security.openid.scope: "{{ wazuh_sso_scope }}"
+opensearch_security.openid.verify_hostnames: true
+opensearch_security.openid.root_ca: "{{ wazuh_sso_dashboard_root_ca }}"
+server.xsrf.allowlist: ["/_opendistro/_security/api/authtoken", "/_opendistro/_security/openid/login", "/_opendistro/_security/openid/logout"]

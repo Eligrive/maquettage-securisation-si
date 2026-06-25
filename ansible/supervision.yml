@@ -36,6 +36,15 @@
   gather_facts: true
   become: true
   roles:
+    # Le SIEM n'est PAS membre de [maquette] : on lui distribue ici l'ancre PKI
+    # (back-channel OIDC vers sso.unicampus.fr) et la résolution split-DNS des
+    # FQDN *.unicampus.fr. Indispensable au SSO Keycloak du dashboard (cf.
+    # wazuh_manager : openid_connect_url + root_ca). Dépend du rôle pki (rootCA
+    # généré par provision.yml).
+    - role: ca_trust
+      tags: [siem, pki, ca, sso]
+    - role: unicampus_dns
+      tags: [siem, dns, sso]
     - role: wazuh_manager
       tags: [siem, manager]
 

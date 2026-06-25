@@ -41,9 +41,12 @@ $oidc->setRedirectURL(
         ? "https://$host/auth-callback"
         : $cfg['OIDC_REDIRECT_URI']
 );
-foreach (explode(' ', $cfg['OIDC_SCOPES'] ?? 'openid profile email') as $s) {
-    if ($s !== '') { $oidc->addScope($s); }
-}
+// jumbojett\OpenIDConnectClient::addScope() attend un TABLEAU de scopes
+// (et non une chaîne) : on passe donc la liste complète, vides filtrés.
+$oidc->addScope(array_values(array_filter(
+    explode(' ', $cfg['OIDC_SCOPES'] ?? 'openid profile email'),
+    static fn ($s) => $s !== ''
+)));
 // Le back-channel (token/userinfo) sort vers https://sso.unicampus.fr : la CA
 // interne est approuvée sur cet hôte (rôle ca_trust) -> vérification TLS active.
 $oidc->authenticate();

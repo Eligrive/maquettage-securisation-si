@@ -54,14 +54,17 @@
     owner: www-data
     group: www-data
     mode: "0640"
+    # Lu par parse_ini_file() côté PHP : le caractère de commentaire INI est « ; »
+    # (et NON « # », qui provoque « syntax error » -> parse_ini_file renvoie false
+    # -> $cfg vide -> 500). Les commentaires ci-dessous utilisent donc « ; ».
     content: |
-      # {{ ansible_managed }}
+      ; {{ ansible_managed }}
       OIDC_PROVIDER_URL={{ keycloak_issuer_url }}
       OIDC_CLIENT_ID=webrh-client
       OIDC_CLIENT_SECRET={{ oidc_secrets.webrh }}
       OIDC_REDIRECT_URI=https://webrh.unicampus.fr/auth-callback
       OIDC_SCOPES=openid profile email
-      # Rôle realm Keycloak requis pour ouvrir une session RH (filtrage applicatif).
+      ; Rôle realm Keycloak requis pour ouvrir une session RH (filtrage applicatif).
       REQUIRED_REALM_ROLE=Admin_RH
   no_log: true
 
