@@ -137,7 +137,6 @@ ansible_provision:
     # 1. Récupérer les outputs Terraform (Floating IPs) via le state GitLab
     - cd "${TF_ROOT}"
     - *tf_init_backend
-    - export MOODLE_FIP="$(terraform output -raw moodle_floating_ip)"
     - export FW_FIP="$(terraform output -raw firewall_floating_ip)"
     # 2. Préparer la clé SSH (jump + cibles) et désactiver le host-key checking
     - mkdir -p ~/.ssh && chmod 700 ~/.ssh
@@ -156,9 +155,13 @@ ansible_provision:
     # groupe/autres pour qu'il soit "de confiance" et effectivement chargé.
     - chmod -R go-w "${CI_PROJECT_DIR}/ansible"
     - JUMP="${SSH_JUMP_HOST:-ubuntu@${FW_FIP}}"
+    # NE PAS surcharger moodle_wwwroot : en topologie V2 segmentée (hosts.ini), le
+    # défaut du rôle (https://moodle.unicampus.fr, via le reverse proxy + SSO) est
+    # requis. Forcer http://<FIP_moodle> (vestige V1 flat) fige Moodle sur l'IP
+    # publique en HTTP -> redirection hors HTTPS + SSO OIDC cassé (redirect_uri /
+    # sslproxy). cf. en-tête de provision.yml.
     - ansible-playbook -i inventory/hosts.generated.ini site.yml
       -e "ssh_jump_host=${JUMP}"
-      -e "moodle_wwwroot=http://${MOODLE_FIP}"
       --private-key ~/.ssh/id_ansible
   rules:
     - if: '$CI_COMMIT_BRANCH == "develop" || $CI_COMMIT_BRANCH == "main"'

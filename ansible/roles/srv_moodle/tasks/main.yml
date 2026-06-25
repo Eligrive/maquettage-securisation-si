@@ -182,6 +182,28 @@
 # failed for auth_oidc » -> tables auth_oidc absentes -> 404 « ddltablenotexist »
 # au login SSO). On épingle donc un TAG compatible (moodle_oidc_plugin_version) et
 # on AUTORISE la mise à jour (update/force) pour ré-aligner un clone déjà présent.
+
+# REMÉDIATION CI (« fatal: detected dubious ownership in repository ... auth/oidc »
+# / « ... /moodle ») : le code Moodle et le plugin sont chown'd www-data, alors
+# que le module git tourne en root (become). git >= 2.35.2 refuse alors d'opérer
+# sur un dépôt appartenant à un autre utilisateur. On déclare donc ces dépôts
+# comme « sûrs » pour root, AVANT toute opération git (clone/fetch/set-url).
+- name: OIDC — lister les safe.directory git de root (idempotence)
+  ansible.builtin.command:
+    cmd: git config --global --get-all safe.directory
+  register: _git_safe
+  changed_when: false
+  failed_when: false
+
+- name: OIDC — déclarer les dépôts Moodle comme sûrs pour git (dubious ownership)
+  ansible.builtin.command:
+    cmd: "git config --global --add safe.directory {{ item }}"
+  loop:
+    - /var/www/html/moodle
+    - /var/www/html/moodle/auth/oidc
+  when: item not in (_git_safe.stdout_lines | default([]))
+  changed_when: true
+
 - name: OIDC — cloner/épingler le plugin auth_oidc (tag compatible Moodle)
   ansible.builtin.git:
     repo: "{{ moodle_oidc_plugin_repo }}"
