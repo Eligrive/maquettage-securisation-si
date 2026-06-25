@@ -1,0 +1,16 @@
+#!/bin/sh
+# {{ ansible_managed }}
+# Démarrage de la session XFCE pour TigerVNC.
+# Exécuté EN AVANT-PLAN par « vncserver -fg » (cf. l'unité systemd) : on lance
+# donc XFCE via exec (et non en arrière-plan), pour que la session reste vivante
+# tant que le bureau l'est.
+
+# Neutralise les variables héritées qui provoquent un écran noir sous XFCE/VNC.
+unset SESSION_MANAGER
+unset DBUS_SESSION_BUS_ADDRESS
+
+# Charge les ressources X11 de l'utilisateur si présentes.
+[ -r "$HOME/.Xresources" ] && xrdb "$HOME/.Xresources"
+
+# Bus de session dédié (dbus-x11) + bureau XFCE en avant-plan.
+exec dbus-launch --exit-with-session startxfce4

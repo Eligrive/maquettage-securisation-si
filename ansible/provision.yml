@@ -184,6 +184,9 @@
     - { role: maquette_accounts, tags: [accounts, postes] }
     - { role: loot, tags: [loot, postes] }
     - { role: poste, tags: [postes] }
+    # Bureau distant TigerVNC (démos/tests) : ne s'active que là où host_vars
+    # définit vnc_enabled: true (uc-poste-etu, uc-poste-dsi). Accès via tunnel SSH.
+    - { role: vnc_server, tags: [vnc, postes] }
     # V2 : les postes approuvent la CA interne et résolvent *.unicampus.fr.
     - { role: ca_trust, tags: [pki, ca, iam] }
     - { role: unicampus_dns, tags: [dns, iam] }

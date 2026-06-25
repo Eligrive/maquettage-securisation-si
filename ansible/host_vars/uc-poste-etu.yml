@@ -17,6 +17,11 @@ poste_packages:
   - smbclient
   - ldap-utils
 
+# Bureau distant TigerVNC (rôle vnc_server) — accès graphique pour démos/tests
+# via tunnel SSH. Écoute sur 127.0.0.1:5901 uniquement (display :1).
+#   ssh -J ubuntu@<FIP_firewall> -L 5901:127.0.0.1:5901 ubuntu@192.168.101.1 -N
+vnc_enabled: true
+
 poste_files:
   - dest: /home/ubuntu/README.txt
     owner: ubuntu

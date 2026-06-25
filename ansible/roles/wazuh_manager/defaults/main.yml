@@ -31,4 +31,7 @@ wazuh_manager_syslog_allowed_ips:
   - "192.168.0.0/16"
 
 # Délai max (s) accordé à l'installeur AIO (téléchargement + install OpenSearch).
-wazuh_aio_install_timeout: 1800
+# Sur m1.medium l'AIO frôle les 30 min (l'install du dashboard + l'init sécurité
+# de l'indexer sont lents sur ce flavor) : 2700 s (45 min) laisse une marge pour
+# ne pas timeouter alors que le dernier composant se termine.
+wazuh_aio_install_timeout: 2700
