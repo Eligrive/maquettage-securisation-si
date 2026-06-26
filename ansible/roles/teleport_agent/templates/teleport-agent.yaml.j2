@@ -5,8 +5,28 @@ version: v3
 teleport:
   nodename: {{ inventory_hostname }}
   data_dir: /var/lib/teleport
-  auth_server: {{ teleport_bastion_ip }}:3025
+  # L'agent se raccorde au PROXY en mode TUNNEL INVERSE (pas à l'auth en direct).
+  # La maquette est segmentée : le bastion NE PEUT PAS dialer les nœuds sur :3022
+  # → une session ouverte resterait muette. En tunnel inverse, c'est le nœud qui
+  # ouvre la connexion vers le proxy (nœud → bastion:3080/3024 est ouvert) et les
+  # sessions sont routées par ce tunnel. On vise le FQDN pour matcher le SAN du
+  # certificat du proxy ; côté agents {{ teleport_bastion_fqdn }} doit résoudre
+  # vers {{ teleport_bastion_ip }} (override /etc/hosts) et NON vers le reverse
+  # proxy nginx — sinon la terminaison TLS de nginx casse le routage ALPN Teleport.
+  proxy_server: {{ teleport_bastion_fqdn }}:3080
   auth_token: {{ teleport_join_token }}
+
+# IMPORTANT : un agent ne doit PAS être son propre cluster. Dans Teleport, une
+# section de service OMISE vaut « enabled: yes » : sans ces deux lignes, l'agent
+# démarre son propre auth_service (:3025) + proxy_service et s'auto-signe un
+# cluster nommé d'après son hostname ; son certificat est alors rejeté par le
+# bastion (« key /authorities/host/<nodename> is not found » → tls: bad
+# certificate). On les désactive explicitement : l'agent ne fait que rejoindre.
+auth_service:
+  enabled: "no"
+
+proxy_service:
+  enabled: "no"
 
 ssh_service:
   enabled: "{{ 'yes' if teleport_agent_ssh_enabled else 'no' }}"

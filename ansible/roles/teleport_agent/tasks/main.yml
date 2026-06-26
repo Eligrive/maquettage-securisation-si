@@ -31,6 +31,19 @@
   register: _apt_teleport_agent
   until: _apt_teleport_agent is succeeded
 
+# Override DNS : sur les AGENTS uniquement, le FQDN du proxy bastion doit pointer
+# vers l'IP réelle du bastion (tunnel inverse direct), pas vers le reverse proxy
+# nginx (dont la terminaison TLS casse le routage ALPN de Teleport). Les postes
+# humains gardent le split-DNS habituel (FQDN -> nginx) pour l'UI web du bastion.
+- name: Override DNS bastion (agents -> IP réelle du bastion, pas nginx)
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    line: "{{ teleport_bastion_ip }} {{ teleport_bastion_fqdn }}  # agent->bastion direct (tunnel teleport)"
+    regexp: '^\s*\S+\s+{{ teleport_bastion_fqdn | regex_escape }}\s+#\s+agent->bastion'
+    insertbefore: BOF
+    state: present
+  notify: restart teleport
+
 - name: Déployer la configuration de l'agent (/etc/teleport.yaml)
   ansible.builtin.template:
     src: teleport-agent.yaml.j2
