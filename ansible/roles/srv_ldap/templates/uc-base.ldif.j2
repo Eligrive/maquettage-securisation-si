@@ -1,0 +1,32 @@
+# {{ ansible_managed }}
+# Peuplement de l'annuaire (source d'autorité IAM, cf. defaults/main.yml).
+# Généré depuis ldap_people / ldap_groups. userPassword est HASHÉ (slappasswd,
+# §4.4) et destiné à être réinitialisé au 1er login via le SSO. Les groupes
+# (groupOfNames) portent les noms des groupes Keycloak (mapping RBAC direct).
+dn: ou=people,{{ ldap_base_dn }}
+objectClass: organizationalUnit
+ou: people
+
+dn: ou=groups,{{ ldap_base_dn }}
+objectClass: organizationalUnit
+ou: groups
+{% for p in ldap_people %}
+
+dn: uid={{ p.uid }},ou=people,{{ ldap_base_dn }}
+objectClass: inetOrgPerson
+uid: {{ p.uid }}
+cn: {{ p.given }} {{ p.sn }}
+sn: {{ p.sn }}
+givenName: {{ p.given }}
+mail: {{ (p.given ~ '.' ~ p.sn) | lower | replace(' ', '') }}@{{ ldap_domain }}
+userPassword: {{ ldap_pw_hash }}
+{% endfor %}
+{% for g in ldap_groups %}
+
+dn: cn={{ g }},ou=groups,{{ ldap_base_dn }}
+objectClass: groupOfNames
+cn: {{ g }}
+{% for p in ldap_people if p.group == g %}
+member: uid={{ p.uid }},ou=people,{{ ldap_base_dn }}
+{% endfor %}
+{% endfor %}

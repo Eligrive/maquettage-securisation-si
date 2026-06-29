@@ -1,0 +1,50 @@
+# {{ ansible_managed }}
+# Keycloak (mode production Quarkus) + PostgreSQL dédié, derrière le reverse
+# proxy nginx (KC_PROXY=edge : Keycloak écoute en HTTP, nginx termine le TLS).
+# cf. V2_scripts/keycloak.sh — paramétré par Ansible (group_vars/all.yml).
+
+volumes:
+  postgres_data:
+    driver: local
+
+services:
+  postgres:
+    image: {{ keycloak_postgres_image }}
+    restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: {{ keycloak_db_password }}
+
+  keycloak:
+    image: {{ keycloak_image }}
+    restart: unless-stopped
+    command: start
+    environment:
+      # --- Base de données ---
+      KC_DB: postgres
+      KC_DB_URL_HOST: postgres
+      KC_DB_URL_DATABASE: keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: {{ keycloak_db_password }}
+
+      # --- Compte administrateur initial ---
+      KEYCLOAK_ADMIN: {{ keycloak_admin_user }}
+      KEYCLOAK_ADMIN_PASSWORD: {{ keycloak_admin_password }}
+
+      # --- Reverse proxy (nginx termine le TLS) ---
+      KC_PROXY: edge
+      KC_PROXY_HEADERS: xforwarded
+      KC_HOSTNAME: {{ keycloak_hostname }}
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+
+      # --- Endpoints de santé (sonde de disponibilité) ---
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres

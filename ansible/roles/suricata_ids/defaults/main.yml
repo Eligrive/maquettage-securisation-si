@@ -1,0 +1,20 @@
+---
+# ============================================================================
+#  Rôle suricata_ids — sonde IDS/IPS sur le firewall central
+# ============================================================================
+
+# Interface écoutée. "auto" = interface de la route par défaut (souvent celle
+# qui voit le plus de trafic inter-VLAN sur un firewall inline).
+suricata_interface: "auto"
+
+# ids = détection passive (af-packet) ; ips = prévention inline (NFQUEUE).
+suricata_mode: "ids"
+
+# Réseaux internes à protéger (HOME_NET Suricata).
+suricata_home_net: "[192.168.0.0/16]"
+
+# Télécharger le jeu de règles Emerging Threats Open via suricata-update.
+suricata_ruleset_enabled: true
+
+# Numéro de queue NFQUEUE (mode ips).
+suricata_nfqueue_num: 0

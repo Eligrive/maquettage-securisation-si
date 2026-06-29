@@ -1,0 +1,7 @@
+---
+- name: restart vncserver
+  ansible.builtin.systemd:
+    name: "vncserver@{{ vnc_display }}.service"
+    state: restarted
+    enabled: true
+    daemon_reload: true

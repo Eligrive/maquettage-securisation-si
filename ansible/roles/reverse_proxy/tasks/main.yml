@@ -1,0 +1,67 @@
+---
+# ============================================================================
+#  Rôle reverse_proxy — installe nginx + certs PKI + vhosts HTTPS
+# ============================================================================
+
+- name: Installer nginx
+  ansible.builtin.apt:
+    name: nginx
+    state: present
+    update_cache: true
+  retries: 3
+  delay: 10
+  register: _apt_nginx
+  until: _apt_nginx is succeeded
+
+# --- Certificat multi-SAN de la PKI (généré sur le contrôleur par le rôle pki) -
+- name: Déposer la fullchain du reverse proxy
+  ansible.builtin.copy:
+    src: "{{ pki_dir }}/{{ reverse_proxy_cert_name }}.fullchain.crt"
+    dest: "{{ reverse_proxy_cert_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx
+
+- name: Déposer la clé privée du reverse proxy
+  ansible.builtin.copy:
+    src: "{{ pki_dir }}/{{ reverse_proxy_cert_name }}.key"
+    dest: "{{ reverse_proxy_key_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  notify: reload nginx
+
+# --- Vhosts unicampus (un server{} HTTPS par FQDN + redirection 80->443) ------
+- name: Écrire la configuration nginx unicampus
+  ansible.builtin.template:
+    src: unicampus.conf.j2
+    dest: /etc/nginx/sites-available/unicampus
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx
+
+- name: Activer le site unicampus (lien symbolique)
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/unicampus
+    dest: /etc/nginx/sites-enabled/unicampus
+    state: link
+  notify: reload nginx
+
+- name: Désactiver le site nginx par défaut
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: reload nginx
+
+# --- Validation de la syntaxe avant tout reload -----------------------------
+- name: Vérifier la configuration nginx (nginx -t)
+  ansible.builtin.command: nginx -t
+  changed_when: false
+
+- name: Activer et démarrer nginx
+  ansible.builtin.systemd:
+    name: nginx
+    state: started
+    enabled: true

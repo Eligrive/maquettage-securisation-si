@@ -1,0 +1,58 @@
+---
+# ============================================================================
+#  Rôle srv_moodle — LMS Moodle (ex scripts/srv-moodle.sh)
+# ============================================================================
+# Apache + PHP + MariaDB locale, HTTP en clair, aucune politique de mot de passe
+# (vulns volontaires §4.2/§6.2).
+
+moodle_branch: "MOODLE_404_STABLE"
+moodle_db_name: "moodle"
+moodle_db_user: "moodle"
+moodle_db_pass: "unicampus2024"
+moodle_admin_pass: "Admin2024" # volontairement faible
+
+# Moodle redirige toutes les requêtes vers wwwroot : en V2 c'est l'URL PUBLIQUE
+# HTTPS servie par le reverse proxy (terminaison TLS PKI + SSO). Le proxy relaie
+# en HTTP vers Moodle -> $CFG->sslproxy doit être vrai (cf. tasks). Surchargeable
+# en CI/local par -e moodle_wwwroot=... (ex. http://<FIP_moodle> pour la V1).
+moodle_wwwroot: "https://moodle.unicampus.fr"
+
+# --- SSO Keycloak (OIDC) — cf. V2_scripts/install_oidc_moodle.sh -------------
+# Plugin officiel Microsoft auth_oidc. La bascule en masse des comptes existants
+# vers OIDC (UPDATE mdl_user) est désactivée par défaut pour ne pas verrouiller
+# le compte admin local de secours ; activer avec moodle_oidc_migrate_users=true.
+moodle_oidc_plugin_repo: "https://github.com/microsoft/moodle-auth_oidc.git"
+# ⚠️ Le plugin n'a PAS de branche MOODLE_XXX_STABLE : sa branche par défaut
+# (master) cible le DERNIER Moodle (5.x) et casse l'upgrade sur Moodle 4.4
+# (« Dependencies check failed »). On épingle donc un TAG dont la série major.minor
+# correspond à Moodle : v4.4.x pour Moodle 4.4 (requires=2024042200). À aligner
+# si moodle_branch change (ex. Moodle 4.5 -> "v4.5.7").
+moodle_oidc_plugin_version: "v4.4.4"
+moodle_oidc_client_id: "moodle-client"
+
+# Endpoints OIDC Keycloak (dérivés de l'issuer) — requis par auth_oidc pour
+# afficher le bouton SSO et initier l'Authorization Code Flow.
+moodle_oidc_authendpoint: "{{ keycloak_issuer_url }}/protocol/openid-connect/auth"
+moodle_oidc_tokenendpoint: "{{ keycloak_issuer_url }}/protocol/openid-connect/token"
+# Libellé du bouton SSO sur la page de login.
+moodle_oidc_opname: "Keycloak SSO"
+# true : « Connexion » redirige DIRECTEMENT vers Keycloak (login local accessible
+# via /login/index.php?noredirect=1 pour l'admin de secours).
+moodle_oidc_forceredirect: true
+
+moodle_oidc_migrate_users: false
+
+# Blocklist SSRF de Moodle ($CFG->curlsecurityblockedhosts) — appliquée par le
+# rôle pour autoriser le back-channel OIDC interne (token endpoint via le reverse
+# proxy 192.168.108.1) SANS désactiver toute la protection. On reprend la
+# blocklist par défaut de Moodle EN RETIRANT 192.168.0.0/16 (réseau du proxy),
+# tout en CONSERVANT le blocage des métadonnées cloud (169.254.169.254), de la
+# loopback et des autres plages privées. Découpage Moodle = un host/CIDR par ligne.
+moodle_curl_blocked_hosts:
+  - "127.0.0.0/8"
+  - "10.0.0.0/8"
+  - "172.16.0.0/12"
+  - "0.0.0.0"
+  - "localhost"
+  - "169.254.169.254"
+  - "0000::1"

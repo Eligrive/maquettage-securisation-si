@@ -1,0 +1,28 @@
+---
+# ============================================================================
+#  Rôle pki — PKI interne UniCampus (Root CA offline + CA intermédiaire)
+# ============================================================================
+#  S'exécute sur le CONTRÔLEUR (localhost) : il génère/maintient la chaîne de
+#  confiance et les certificats serveurs sous {{ pki_dir }}, puis les autres
+#  rôles (reverse_proxy, srv_ldap, srv_mail, bastion) poussent les fichiers
+#  voulus sur les VMs. Les CLÉS PRIVÉES ne quittent jamais le contrôleur (sauf
+#  la clé du certificat serveur, copiée chiffrée 0600 sur la VM concernée).
+#
+#  Idempotent : chaque étape openssl a un `creates:` — relancer le rôle ne
+#  régénère rien si les fichiers existent déjà.
+#
+#  Pas de Let's Encrypt : l'infra n'a aucun nom de domaine public ni accès
+#  ACME entrant → autorité interne, ancre de confiance distribuée aux clients.
+
+# Durées de validité (jours).
+pki_root_days: 3650 # 10 ans (racine)
+pki_intermediate_days: 1825 # 5 ans (intermédiaire)
+pki_leaf_days: 730 # 2 ans (serveurs)
+
+# OU des sujets (CN/SAN définis dans group_vars/all.yml : pki_server_certs).
+pki_ca_ou: "DSI-Securite"
+pki_leaf_ou: "Services"
+
+# Sujets DN complets dérivés des composantes (group_vars/all.yml).
+pki_root_cn: "UniCampus Root CA"
+pki_intermediate_cn: "UniCampus Intermediate CA"

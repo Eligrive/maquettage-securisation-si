@@ -1,0 +1,29 @@
+---
+# ============================================================================
+#  Rôle teleport_agent — agent Teleport raccordé au bastion (SSH et/ou DB)
+# ============================================================================
+#  Reprend V2_scripts/join_{ssh_infra,dbrh,recherche}_bastion.sh. Chaque hôte
+#  s'enrôle auprès du bastion (auth_server :3025) avec le jeton pré-partagé puis
+#  expose son service SSH et/ou ses bases via le proxy Teleport.
+
+# FQDN du proxy bastion visé par les agents (mode tunnel inverse). Doit matcher
+# un SAN du certificat servi par le proxy Teleport. ATTENTION : côté agents, ce
+# FQDN doit résoudre vers teleport_bastion_ip (override /etc/hosts, cf. tâche
+# « override DNS bastion » plus bas) et NON vers le reverse proxy nginx, dont la
+# terminaison TLS casserait le routage ALPN/tunnel de Teleport.
+teleport_bastion_fqdn: "bastion.unicampus.fr"
+
+# Service SSH contrôlé par Teleport (nœuds d'infra). Désactivé sur les hôtes
+# purement « base de données » (cf. host_vars/uc-db-rh.yml).
+teleport_agent_ssh_enabled: true
+teleport_agent_env_label: "infra"
+
+# Service DB contrôlé par Teleport (hôtes base). Liste des bases exposées :
+#   - { name, protocol(mysql|postgres), uri, env }
+teleport_agent_db_enabled: false
+teleport_agent_databases: []
+
+# Durcissement SSH legacy (désactive l'auth par mot de passe). L'accès admin
+# passe désormais par le bastion ; Ansible continue via clé. Mettre à false pour
+# conserver les scénarios « cred reuse » de la maquette V1.
+teleport_agent_harden_ssh: true

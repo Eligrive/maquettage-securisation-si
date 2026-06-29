@@ -1,0 +1,322 @@
+---
+# ============================================================================
+#  Rôle srv_moodle — Apache/PHP/MariaDB + Moodle (HTTP clair)
+# ============================================================================
+
+- name: Installer Apache, MariaDB, git et PHP
+  ansible.builtin.apt:
+    name:
+      - apache2
+      - mariadb-server
+      - git
+      - php
+      - php-cli
+      - php-curl
+      - php-gd
+      - php-intl
+      - php-mbstring
+      - php-mysqli
+      - php-xml
+      - php-zip
+      - php-soap
+      - php-xmlrpc
+      - libapache2-mod-php
+    state: present
+    update_cache: true
+  retries: 3
+  delay: 10
+  register: _apt_moodle
+  until: _apt_moodle is succeeded
+
+# --- MariaDB locale (bind 127.0.0.1) + base Moodle --------------------------
+- name: MariaDB — bind sur la loopback
+  ansible.builtin.lineinfile:
+    path: /etc/mysql/mariadb.conf.d/50-server.cnf
+    regexp: '^\s*bind-address\s*='
+    line: "bind-address = 127.0.0.1"
+  notify: restart mariadb
+
+- name: Activer et démarrer MariaDB
+  ansible.builtin.systemd:
+    name: mariadb
+    state: started
+    enabled: true
+
+- name: Appliquer la conf MariaDB avant la création de base
+  ansible.builtin.meta: flush_handlers
+
+- name: Créer la base et l'utilisateur Moodle (idempotent)
+  ansible.builtin.shell: |
+    mysql <<SQL
+    CREATE DATABASE IF NOT EXISTS {{ moodle_db_name }} DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+    CREATE USER IF NOT EXISTS '{{ moodle_db_user }}'@'localhost' IDENTIFIED BY '{{ moodle_db_pass }}';
+    GRANT ALL PRIVILEGES ON {{ moodle_db_name }}.* TO '{{ moodle_db_user }}'@'localhost';
+    FLUSH PRIVILEGES;
+    SQL
+  changed_when: false
+
+# --- PHP : Moodle exige max_input_vars >= 5000 ------------------------------
+- name: Localiser les php.ini
+  ansible.builtin.find:
+    paths: /etc/php
+    patterns: php.ini
+    recurse: true
+  register: _php_inis
+
+- name: Forcer max_input_vars = 5000
+  ansible.builtin.replace:
+    path: "{{ item.path }}"
+    regexp: '^[;\s]*max_input_vars\s*=.*'
+    replace: "max_input_vars = 5000"
+  loop: "{{ _php_inis.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  notify: restart apache2
+
+# --- Récupération de Moodle (clone uniquement si absent) --------------------
+- name: Vérifier si Moodle est déjà configuré (config.php présent)
+  ansible.builtin.stat:
+    path: /var/www/html/moodle/config.php
+  register: _moodle_config
+
+- name: Nettoyer le dossier s'il est corrompu ou incomplet
+  ansible.builtin.file:
+    path: /var/www/html/moodle
+    state: absent
+  when: not _moodle_config.stat.exists
+
+- name: Cloner Moodle ({{ moodle_branch }})
+  ansible.builtin.git:
+    repo: "https://github.com/moodle/moodle.git"
+    dest: /var/www/html/moodle
+    version: "{{ moodle_branch }}"
+    depth: 1
+    update: false
+  when: not _moodle_config.stat.exists
+
+- name: Créer le moodledata et fixer les droits (permissif, vuln volontaire)
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /var/www/html/moodle, mode: "0755" }
+    - { path: /var/moodledata, mode: "0777" }
+
+- name: S'assurer que le code Moodle appartient à www-data
+  ansible.builtin.file:
+    path: /var/www/html/moodle
+    owner: www-data
+    group: www-data
+    recurse: true
+
+# --- Installation CLI non interactive (idempotente via config.php) ----------
+- name: Installer Moodle (CLI)
+  ansible.builtin.command:
+    cmd: >-
+      sudo -u www-data php /var/www/html/moodle/admin/cli/install.php
+      --non-interactive --agree-license
+      --wwwroot="{{ moodle_wwwroot }}" --dataroot=/var/moodledata
+      --dbtype=mariadb --dbhost=127.0.0.1 --dbname={{ moodle_db_name }}
+      --dbuser={{ moodle_db_user }} --dbpass={{ moodle_db_pass }}
+      --fullname="UniCampus+ Moodle" --shortname="UC"
+      --adminuser=admin --adminpass="{{ moodle_admin_pass }}"
+      --adminemail=admin@unicampus.local
+    creates: /var/www/html/moodle/config.php
+  register: _moodle_install
+  failed_when: false
+
+# --- Apache : Moodle à la racine, HTTP en clair -----------------------------
+- name: Configurer le vhost Apache (Moodle à la racine)
+  ansible.builtin.copy:
+    src: 000-default.conf
+    dest: /etc/apache2/sites-available/000-default.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart apache2
+
+- name: Activer le module rewrite
+  ansible.builtin.command:
+    cmd: a2enmod rewrite
+    creates: /etc/apache2/mods-enabled/rewrite.load
+  notify: restart apache2
+
+- name: Activer et démarrer Apache
+  ansible.builtin.systemd:
+    name: apache2
+    state: started
+    enabled: true
+
+# ============================================================================
+#  V2 — Reverse proxy HTTPS : Moodle est derrière un proxy qui termine le TLS
+# ============================================================================
+#  REMÉDIATION (curl -kI -> « Location: http://137.194.210.214/ ») : si install.php
+#  a été lancé avec une IP (surcharge V1 `-e moodle_wwwroot=http://<FIP>`), wwwroot
+#  est figé sur l'IP et casse le tunnel SSO. On le ré-aligne sur le FQDN public.
+- name: Forcer wwwroot sur le FQDN public (derrière le reverse proxy)
+  ansible.builtin.lineinfile:
+    path: /var/www/html/moodle/config.php
+    regexp: '^\$CFG->wwwroot\s*='
+    line: "$CFG->wwwroot = '{{ moodle_wwwroot }}';"
+  failed_when: false
+  notify: purge moodle caches
+
+- name: Moodle derrière le reverse proxy (sslproxy)
+  ansible.builtin.lineinfile:
+    path: /var/www/html/moodle/config.php
+    insertafter: '^\$CFG->wwwroot'
+    line: "$CFG->sslproxy = true;"
+    regexp: '^\$CFG->sslproxy'
+  failed_when: false
+  # Sans purge, Moodle continue de servir l'ancien wwwroot mis en cache (-> IP).
+  notify: purge moodle caches
+
+# ============================================================================
+#  V2 — SSO Keycloak (plugin auth_oidc) — cf. V2_scripts/install_oidc_moodle.sh
+# ============================================================================
+# Le plugin n'a PAS de branche MOODLE_XXX_STABLE : sa branche par défaut (master)
+# cible le DERNIER Moodle (5.x) et casse l'upgrade sur 4.4 (« Dependencies check
+# failed for auth_oidc » -> tables auth_oidc absentes -> 404 « ddltablenotexist »
+# au login SSO). On épingle donc un TAG compatible (moodle_oidc_plugin_version) et
+# on AUTORISE la mise à jour (update/force) pour ré-aligner un clone déjà présent.
+
+# REMÉDIATION CI (« fatal: detected dubious ownership in repository ... auth/oidc »
+# / « ... /moodle ») : le code Moodle et le plugin sont chown'd www-data, alors
+# que le module git tourne en root (become). git >= 2.35.2 refuse alors d'opérer
+# sur un dépôt appartenant à un autre utilisateur. On déclare donc ces dépôts
+# comme « sûrs » pour root, AVANT toute opération git (clone/fetch/set-url).
+- name: OIDC — lister les safe.directory git de root (idempotence)
+  ansible.builtin.command:
+    cmd: git config --global --get-all safe.directory
+  register: _git_safe
+  changed_when: false
+  failed_when: false
+
+- name: OIDC — déclarer les dépôts Moodle comme sûrs pour git (dubious ownership)
+  ansible.builtin.command:
+    cmd: "git config --global --add safe.directory {{ item }}"
+  loop:
+    - /var/www/html/moodle
+    - /var/www/html/moodle/auth/oidc
+  when: item not in (_git_safe.stdout_lines | default([]))
+  changed_when: true
+
+- name: OIDC — cloner/épingler le plugin auth_oidc (tag compatible Moodle)
+  ansible.builtin.git:
+    repo: "{{ moodle_oidc_plugin_repo }}"
+    dest: /var/www/html/moodle/auth/oidc
+    version: "{{ moodle_oidc_plugin_version }}"
+    update: true
+    force: true
+  register: _moodle_oidc_clone
+
+- name: OIDC — droits du plugin (www-data)
+  ansible.builtin.file:
+    path: /var/www/html/moodle/auth/oidc
+    owner: www-data
+    group: www-data
+    recurse: true
+
+# REMÉDIATION (« Table auth_oidc_state does not exist » / ddltablenotexist au
+# clic « Connexion ») : le schéma du plugin (db/install.xml -> mdl_auth_oidc_*)
+# n'est créé que par upgrade.php. Gater cette installation sur le SEUL changement
+# du clone git est fragile : un 1er upgrade échoué (ancienne branche master
+# incompatible 4.4) laisse les tables absentes DÉFINITIVEMENT, et les rejeux
+# suivants ne relancent jamais l'upgrade. On vérifie donc l'état RÉEL en base.
+- name: OIDC — vérifier la présence des tables du plugin (mdl_auth_oidc_state)
+  ansible.builtin.command:
+    cmd: >-
+      mysql -N -u {{ moodle_db_user }} -p{{ moodle_db_pass }} {{ moodle_db_name }}
+      -e "SHOW TABLES LIKE 'mdl_auth_oidc_state';"
+  register: _moodle_oidc_tables
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+# « Version fantôme » : si un install partiel a déjà inscrit une version du
+# plugin dans mdl_config_plugins alors que les tables n'ont pas été créées,
+# upgrade.php répond « No upgrade needed » et ne crée JAMAIS le schéma. On efface
+# donc cette version fantôme (UNIQUEMENT la clé 'version' — on préserve
+# clientid/clientsecret/endpoints posés par cfg.php) pour forcer une
+# (ré)installation propre par l'upgrade qui suit.
+- name: OIDC — purger la version « fantôme » du plugin si les tables manquent
+  ansible.builtin.command:
+    cmd: >-
+      mysql -u {{ moodle_db_user }} -p{{ moodle_db_pass }} {{ moodle_db_name }}
+      -e "DELETE FROM mdl_config_plugins WHERE plugin='auth_oidc' AND name='version';"
+  when: _moodle_oidc_tables.stdout | trim == ''
+  changed_when: _moodle_oidc_tables.stdout | trim == ''
+  no_log: true
+
+- name: OIDC — intégrer le plugin (upgrade Moodle non interactif)
+  ansible.builtin.command:
+    cmd: sudo -u www-data php /var/www/html/moodle/admin/cli/upgrade.php --non-interactive
+  when: _moodle_oidc_clone is changed or (_moodle_oidc_tables.stdout | trim == '')
+  changed_when: _moodle_oidc_clone is changed or (_moodle_oidc_tables.stdout | trim == '')
+
+- name: OIDC — activer la méthode d'authentification (oidc + manual)
+  ansible.builtin.command:
+    cmd: sudo -u www-data php /var/www/html/moodle/admin/cli/cfg.php --name=auth --set="oidc,manual"
+  changed_when: false
+
+# REMÉDIATION (auth_oidc « Bad response received » / debugdata « The URL is
+# blocked. ») : la sécurité cURL anti-SSRF de Moodle (curlsecurityblockedhosts)
+# bloque par défaut 192.168.0.0/16, ce qui coupe l'appel back-channel au token
+# endpoint résolu vers le reverse proxy interne (192.168.108.1). Moodle n'offre
+# PAS d'allowlist qui primerait sur la blocklist -> on REDÉFINIT la blocklist en
+# retirant uniquement 192.168.0.0/16. On CONSERVE les protections essentielles :
+# loopback, 10/8, 172.16/12, et surtout 169.254.169.254 (métadonnées cloud
+# OpenStack, cible SSRF). On NE touche PAS curlsecurityallowedport (443/80 OK).
+- name: OIDC — débloquer le back-channel interne sans casser l'anti-SSRF (cURL security)
+  ansible.builtin.command:
+    argv:
+      - sudo
+      - -u
+      - www-data
+      - php
+      - /var/www/html/moodle/admin/cli/cfg.php
+      - --name=curlsecurityblockedhosts
+      - "--set={{ moodle_curl_blocked_hosts | join('\n') }}"
+  changed_when: false
+
+# Config minimale insuffisante (clientid/secret/opurl seuls) -> le plugin ne peut
+# PAS construire le lien IdP : aucun bouton sur /login/index.php, l'utilisateur ne
+# voit que le formulaire local. Il faut idptype + endpoints explicites. forceredirect
+# envoie en plus l'utilisateur DIRECTEMENT sur Keycloak au clic « Connexion ».
+- name: OIDC — paramètres du client Keycloak (endpoints + redirection SSO)
+  ansible.builtin.command:
+    cmd: >-
+      sudo -u www-data php /var/www/html/moodle/admin/cli/cfg.php
+      --component=auth_oidc --name={{ item.name }} --set={{ item.value | quote }}
+  loop:
+    - { name: "idptype", value: "3" }            # 3 = OIDC générique (Keycloak, non-Azure)
+    - { name: "clientauthmethod", value: "1" }   # 1 = secret client (client_secret_post)
+    - { name: "clientid", value: "{{ moodle_oidc_client_id }}" }
+    - { name: "clientsecret", value: "{{ oidc_secrets.moodle }}" }
+    - { name: "authendpoint", value: "{{ moodle_oidc_authendpoint }}" }
+    - { name: "tokenendpoint", value: "{{ moodle_oidc_tokenendpoint }}" }
+    - { name: "oidcscope", value: "openid profile email" }
+    - { name: "opname", value: "{{ moodle_oidc_opname }}" }            # libellé du bouton SSO
+    - { name: "forceredirect", value: "{{ '1' if moodle_oidc_forceredirect | bool else '0' }}" }
+  loop_control:
+    label: "{{ item.name }}"
+  changed_when: false
+  no_log: true
+
+# Sans purge, Moodle continue d'afficher l'ancienne page de login (sans bouton SSO).
+- name: OIDC — purger les caches Moodle après (re)configuration
+  ansible.builtin.command:
+    cmd: sudo -u www-data php /var/www/html/moodle/admin/cli/purge_caches.php
+  changed_when: false
+
+- name: OIDC — bascule des comptes locaux vers le SSO (optionnel)
+  ansible.builtin.command:
+    cmd: >-
+      mysql -u {{ moodle_db_user }} -p{{ moodle_db_pass }} {{ moodle_db_name }}
+      -e "UPDATE mdl_user SET auth='oidc' WHERE auth='manual' AND username!='admin';"
+  when: moodle_oidc_migrate_users | bool
+  changed_when: moodle_oidc_migrate_users | bool
+  no_log: true

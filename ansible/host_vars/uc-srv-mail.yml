@@ -1,0 +1,28 @@
+---
+# ============================================================================
+#  uc-srv-mail — messagerie Postfix + Dovecot
+# ============================================================================
+
+# --- Provisioning maquette (rôle srv_mail + comptes) ------------------------
+# Comptes de messagerie = comptes Unix locaux des utilisateurs + admin DSI
+# nominatif (sudo à mot de passe). V2 : plus de compte partagé 'dsi' (§2.5).
+maquette_accounts:
+  - { name: jdupont, password: unicampus2024 }
+  - { name: lmartin, password: Printemps2024 }
+  - { name: sleblanc, password: recherche2024 }
+  - { name: cfournier, password: finance2024 }
+  - { name: jmoreau, password: "{{ admin_dsi_password }}", sudo: true }
+
+# V2 (remédiation §4.5) : on NE dépose PLUS le PDF-leurre des identifiants VPN
+# dans la boîte de jdupont (plus de credentials en clair dans la messagerie).
+# Le mail-leurre "compte d'urgence DSI" n'est lui non plus plus généré (cf. rôle
+# srv_mail durci : mail_decoy_deploy=false).
+
+# --- Supervision (agent Wazuh) ----------------------------------------------
+# Détection brute-force IMAP/SMTP, relais, tentatives d'auth. Wazuh décode
+# nativement le format mail.log.
+wazuh_agent_logfiles:
+  - format: "syslog"
+    location: "/var/log/mail.log"
+  - format: "syslog"
+    location: "/var/log/mail.err"

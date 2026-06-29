@@ -1,0 +1,155 @@
+---
+# ============================================================================
+#  Rôle srv_roundcube — Apache/PHP + Roundcube + plugin OIDC Keycloak
+# ============================================================================
+
+- name: Pré-seed debconf Roundcube (base SQLite locale, auto-config)
+  ansible.builtin.debconf:
+    name: roundcube-core
+    question: "{{ item.q }}"
+    vtype: "{{ item.t }}"
+    value: "{{ item.v }}"
+  loop:
+    - { q: "roundcube/dbconfig-install", t: "boolean", v: "true" }
+    - { q: "roundcube/database-type", t: "select", v: "sqlite3" }
+  loop_control:
+    label: "{{ item.q }}"
+
+- name: Installer Apache, PHP, Roundcube, git et composer
+  ansible.builtin.apt:
+    name:
+      - apache2
+      - libapache2-mod-php
+      - php
+      - php-imap
+      - php-mbstring
+      - php-xml
+      - php-intl
+      - php-zip
+      - php-gd
+      - php-curl
+      - php-json
+      # Driver SQLite (PDO) requis par db_dsnw sqlite + CLI pour init du schéma.
+      # Sans ça : « could not find driver » / repli MySQL -> SQLSTATE[2002].
+      - php-sqlite3
+      - sqlite3
+      - roundcube
+      - roundcube-core
+      - roundcube-plugins
+      - git
+      - composer
+    state: present
+    update_cache: true
+  retries: 3
+  delay: 10
+  register: _apt_roundcube
+  until: _apt_roundcube is succeeded
+
+# --- Plugin OIDC (pulsejet/roundcube-oidc) -----------------------------------
+- name: Cloner le plugin roundcube_oidc
+  ansible.builtin.git:
+    repo: "{{ roundcube_oidc_plugin_repo }}"
+    dest: "{{ roundcube_webroot }}/plugins/roundcube_oidc"
+    depth: 1
+    version: HEAD
+    update: false
+
+- name: Installer les dépendances PHP du plugin via composer
+  ansible.builtin.command: composer install --no-dev
+  args:
+    chdir: "{{ roundcube_webroot }}/plugins/roundcube_oidc"
+    creates: "{{ roundcube_webroot }}/plugins/roundcube_oidc/vendor/autoload.php"
+
+- name: Droits du plugin roundcube_oidc (www-data)
+  ansible.builtin.file:
+    path: "{{ roundcube_webroot }}/plugins/roundcube_oidc"
+    owner: www-data
+    group: www-data
+    recurse: true
+
+# --- Base SQLite : répertoire (hors webroot) + schéma initial ----------------
+- name: DB — créer le répertoire de la base SQLite (hors DocumentRoot)
+  ansible.builtin.file:
+    path: "{{ roundcube_db_dir }}"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: "0750"
+
+- name: DB — initialiser la base SQLite avec le schéma Roundcube (si absente)
+  ansible.builtin.shell:
+    cmd: "sqlite3 '{{ roundcube_db_path }}' < '{{ roundcube_db_sqlite_schema }}'"
+    creates: "{{ roundcube_db_path }}"
+  become: true
+  become_user: www-data
+
+# --- Configuration Roundcube : base SQLite + backend mail + SSO Keycloak ------
+#  Bloc géré en fin de config (la dernière définition d'une clé PHP gagne, et il
+#  passe APRÈS l'include de debian-db.php -> notre db_dsnw SQLite l'emporte sur
+#  le DSN MySQL hérité du paquet) : reprend install_oidc_roundcube.sh + câblage
+#  IMAP/SMTP vers uc-srv-mail.
+- name: Configurer Roundcube (base SQLite + backend mail + plugin OIDC)
+  ansible.builtin.blockinfile:
+    path: "{{ roundcube_config }}"
+    marker: "// {mark} ANSIBLE MANAGED: Roundcube V2 (backend mail + SSO Keycloak)"
+    block: |
+      $config['db_dsnw'] = '{{ roundcube_db_dsnw }}';
+      $config['imap_host'] = '{{ roundcube_imap_host }}:{{ roundcube_imap_port }}';
+      $config['smtp_host'] = '{{ roundcube_smtp_host }}:{{ roundcube_smtp_port }}';
+      $config['smtp_user'] = '%u';
+      $config['smtp_pass'] = '%p';
+      $config['product_name'] = 'UniCampus Webmail';
+
+      // SSO Keycloak (OIDC) — activation du plugin. Les paramètres oidc_* sont
+      // posés dans la config PROPRE du plugin (cf. tâche suivante), car la config
+      // plugin prime sur la config globale : laissés ici, ils sont écrasés par le
+      // config.inc.php.dist du plugin (-> « could not resolve host oidc.example.com »).
+      $config['plugins'][] = 'roundcube_oidc';
+  notify: restart apache2
+
+# REMÉDIATION (« OIDC authentication failed, curl error (6) could not resolve
+# host: oidc.example.com ») : le plugin charge SA config (plugins/roundcube_oidc/
+# config.inc.php, repli sur .dist) qui PRIME sur /etc/roundcube/config.inc.php.
+# Sans config.inc.php propre, le .dist (oidc.example.com) gagne. On écrit donc
+# les paramètres OIDC directement dans le dossier du plugin.
+- name: OIDC — config propre du plugin roundcube_oidc (prime sur la config globale)
+  ansible.builtin.template:
+    src: roundcube_oidc.config.inc.php.j2
+    dest: "{{ roundcube_webroot }}/plugins/roundcube_oidc/config.inc.php"
+    owner: www-data
+    group: www-data
+    mode: "0640"
+  notify: restart apache2
+
+# --- Apache : Roundcube à la racine (https://mail.unicampus.fr/) -------------
+- name: Vhost Apache — Roundcube à la racine
+  ansible.builtin.copy:
+    dest: /etc/apache2/sites-available/000-default.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # {{ ansible_managed }}
+      <VirtualHost *:80>
+          ServerName mail.unicampus.fr
+          DocumentRoot {{ roundcube_webroot }}
+          <Directory {{ roundcube_webroot }}>
+              Options -Indexes +FollowSymLinks
+              AllowOverride All
+              Require all granted
+          </Directory>
+          ErrorLog ${APACHE_LOG_DIR}/error.log
+          CustomLog ${APACHE_LOG_DIR}/access.log combined
+      </VirtualHost>
+  notify: restart apache2
+
+- name: Retirer la page Apache par défaut
+  ansible.builtin.file:
+    path: /var/www/html/index.html
+    state: absent
+
+- name: Activer et démarrer Apache
+  ansible.builtin.systemd:
+    name: apache2
+    state: started
+    enabled: true

@@ -1,0 +1,34 @@
+---
+# ============================================================================
+#  uc-poste-etu — poste étudiant / machine attaquante (rôle poste)
+# ============================================================================
+# L'image Kali n'étant pas bootable sur l'OpenStack école, on installe un
+# outillage offensif de base sur Ubuntu.
+
+poste_packages:
+  - nmap
+  - netcat-openbsd
+  - python3
+  - python3-pip
+  - curl
+  - git
+  - hydra
+  - nfs-common
+  - smbclient
+  - ldap-utils
+
+# Bureau distant TigerVNC (rôle vnc_server) — accès graphique pour démos/tests
+# via tunnel SSH. Écoute sur 127.0.0.1:5901 uniquement (display :1).
+#   ssh -J ubuntu@<FIP_firewall> -L 5901:127.0.0.1:5901 ubuntu@192.168.101.1 -N
+vnc_enabled: true
+
+poste_files:
+  - dest: /home/ubuntu/README.txt
+    owner: ubuntu
+    group: ubuntu
+    content: |
+      Poste etudiant / attaquant (uc-poste-etu, VLAN user 192.168.101.0/24)
+      Outils installes : nmap, netcat, hydra, smbclient, nfs-common, ldap-utils.
+      Cibles : VLAN segmentes 192.168.101-108.0/24 (maquette UniCampus+).
+      NB : le firewall central cloisonne l'inter-VLAN ; depuis ce poste, seuls
+      les services exposes (moodle/web-rh/mail/vpn) sont joignables directement.

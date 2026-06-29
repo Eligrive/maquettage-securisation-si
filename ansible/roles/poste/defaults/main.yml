@@ -1,0 +1,23 @@
+---
+# ============================================================================
+#  Rôle poste — postes clients (ex scripts/poste-{etu,prof,dsi}.sh)
+# ============================================================================
+#
+# Rôle UNIQUE paramétré par host_vars : poste-etu (machine attaquante), poste-prof
+# (identifiants en clair), poste-dsi (poste admin + leurres). Les comptes et les
+# PDF-leurres sont gérés par les rôles maquette_accounts et loot dans le même play.
+#
+# Rappel cadrage : Ansible déploie la MODÉLISATION. Les postes sont des BYOD «non
+# administrés» DANS le SI modélisé (pas d'agent Wazuh dessus, cf. [postes_byod]),
+# mais ils restent provisionnés par l'outil de déploiement de la maquette.
+#
+# Format (host_vars) :
+#   poste_packages: [nmap, ...]            # paquets requis
+#   poste_packages_optional: [firefox]     # best-effort (n'échoue pas si absent)
+#   poste_dirs: [{ path, owner, group, mode }]
+#   poste_files: [{ dest, content, owner, group, mode }]
+
+poste_packages: []
+poste_packages_optional: []
+poste_dirs: []
+poste_files: []

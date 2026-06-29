@@ -1,0 +1,10 @@
+---
+# ============================================================================
+#  Groupe [teleport_nodes] — agents Teleport « accès SSH contrôlé »
+# ============================================================================
+#  Nœuds d'infrastructure (ldap, web-rh, moodle, roundcube, mail) joignables en
+#  SSH UNIQUEMENT via le bastion Teleport (étiquette env: infra).
+
+teleport_agent_ssh_enabled: true
+teleport_agent_db_enabled: false
+teleport_agent_env_label: "infra"

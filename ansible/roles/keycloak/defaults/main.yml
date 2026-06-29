@@ -1,0 +1,25 @@
+---
+# ============================================================================
+#  Rôle keycloak — SSO (Docker Compose : Keycloak + PostgreSQL) sur uc-srv-sso
+# ============================================================================
+#  Reprend V2_scripts/{docker,keycloak,setup_ldap,setup_keycloak_client}.sh,
+#  portés en Ansible idempotent. Keycloak est exposé en HTTP (8080) derrière le
+#  reverse proxy nginx qui termine le TLS (KC_PROXY=edge).
+
+keycloak_dir: "/opt/keycloak"
+
+# Image conteneur. Tag épinglé (reproductibilité) ; supporte `start` + KC_PROXY.
+keycloak_image: "quay.io/keycloak/keycloak:25.0"
+keycloak_postgres_image: "postgres:15"
+
+# Hostname public présenté par Keycloak (cohérent avec le certificat du proxy).
+keycloak_hostname: "sso.unicampus.fr"
+
+# Réessais d'attente de disponibilité (login kcadm) après `docker compose up`.
+keycloak_ready_retries: 30
+keycloak_ready_delay: 10
+
+# Marqueur d'idempotence de la configuration (fédération LDAP + clients OIDC).
+# Supprimer ce fichier (ou passer -e keycloak_force_configure=true) force un rejeu.
+keycloak_configured_marker: "{{ keycloak_dir }}/.uc-configured"
+keycloak_force_configure: false

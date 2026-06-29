@@ -1,0 +1,55 @@
+---
+# ============================================================================
+#  Rôle vnc_server — bureau distant TigerVNC + XFCE (démos / tests)
+# ============================================================================
+#
+# Installe un serveur TigerVNC piloté par systemd avec une session XFCE, pour
+# accéder graphiquement à un poste depuis l'EXTÉRIEUR de l'OpenStack via un
+# simple tunnel SSH (rebond par la Floating IP du firewall), p.ex. :
+#
+#   ssh -J ubuntu@<FIP_firewall> -L 5901:127.0.0.1:5901 ubuntu@<IP_poste> -N
+#   puis : vncviewer localhost:5901   (mot de passe = vnc_password)
+#
+# CADRAGE : facilité d'ACCÈS de la maquette (démos, tests), pas un composant du
+# SI modélisé. Le serveur n'écoute QUE sur 127.0.0.1 (vnc_localhost_only) : il
+# n'est joignable qu'à travers le tunnel SSH, jamais exposé sur le réseau. C'est
+# la seule configuration acceptable, l'auth VNC (DES, 8 car. max) étant faible.
+#
+# Désactivé par défaut : on l'active là où on en a besoin via host_vars
+#   vnc_enabled: true   (cf. uc-poste-etu, uc-poste-dsi).
+
+# --- Activation (gating) -----------------------------------------------------
+vnc_enabled: false
+
+# --- Session ----------------------------------------------------------------
+# Utilisateur Unix propriétaire de la session graphique (doit avoir un $HOME).
+vnc_user: ubuntu
+vnc_home: "/home/{{ vnc_user }}"
+
+# Numéro de display X → port TCP 5900 + display (display 1 ⇒ port 5901).
+vnc_display: 1
+
+# Mot de passe VNC. ATTENTION : TigerVNC tronque à 8 caractères. Secret assumé
+# (maquette) : l'accès reste protégé par le tunnel SSH, pas par ce mot de passe.
+vnc_password: "Secured1"
+
+# Géométrie / profondeur du bureau distant.
+vnc_geometry: "1280x800"
+vnc_depth: 24
+
+# N'écouter que sur la loopback (accès via tunnel SSH uniquement). NE PAS passer
+# à false sans ouvrir le débat sécurité (VNC en clair + auth faible sur le LAN).
+vnc_localhost_only: true
+
+# --- Paquets ----------------------------------------------------------------
+vnc_server_packages:
+  - tigervnc-standalone-server
+  - tigervnc-common
+# Environnement de bureau XFCE (+ dbus-x11 pour dbus-launch : évite l'écran noir).
+vnc_de_packages:
+  - xfce4
+  - xfce4-goodies
+  - dbus-x11
+
+# Binaire serveur (fourni par tigervnc-common).
+vnc_binary: /usr/bin/vncserver

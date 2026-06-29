@@ -1,0 +1,25 @@
+---
+# ============================================================================
+#  Rôle chrome_browser — Google Chrome + confiance PKI interne (base NSS)
+# ============================================================================
+
+# Activation (gating) : par défaut là où il y a un bureau graphique — donc un
+# navigateur — c.-à-d. les postes avec vnc_enabled (uc-poste-etu, uc-poste-dsi).
+# Surchargeable explicitement dans host_vars (chrome_enabled: true/false).
+chrome_enabled: "{{ vnc_enabled | default(false) }}"
+
+# --- Dépôt APT officiel Google Chrome ---------------------------------------
+chrome_apt_key_url: "https://dl.google.com/linux/linux_signing_key.pub"
+chrome_apt_keyring: /etc/apt/keyrings/google-chrome.gpg
+chrome_package: google-chrome-stable
+
+# --- Confiance PKI (NSS) ----------------------------------------------------
+# Utilisateurs du bureau dont la base NSS personnelle (~/.pki/nssdb), utilisée
+# par Chrome/Chromium pour valider les certificats, doit approuver l'ancre
+# UniCampus. Dans la maquette, seul l'utilisateur « ubuntu » ouvre une session.
+chrome_trust_users:
+  - ubuntu
+# Ancre racine déjà déposée dans le magasin système par le rôle ca_trust : on la
+# réutilise telle quelle pour l'importer dans NSS (source unique de vérité).
+chrome_ca_src: /usr/local/share/ca-certificates/unicampus-root.crt
+chrome_ca_nickname: "UniCampus Root CA"

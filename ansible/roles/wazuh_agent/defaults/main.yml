@@ -1,0 +1,18 @@
+---
+# ============================================================================
+#  Rôle wazuh_agent — agent Wazuh (HIDS) sur les hôtes supervisés
+# ============================================================================
+
+# Dépôt APT officiel Wazuh (branche 4.x).
+wazuh_agent_repo_key_url: "https://packages.wazuh.com/key/GPG-KEY-WAZUH"
+wazuh_agent_keyring: "/usr/share/keyrings/wazuh.gpg"
+wazuh_agent_repo_line: "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main"
+
+# Groupe d'agents (permet d'appliquer des configs/groupes côté manager).
+wazuh_agent_group: "default"
+
+# Emplacements de logs applicatifs supplémentaires à collecter, en plus des
+# logs système couverts par défaut (auth.log, syslog, journald, FIM, SCA...).
+# Surchargé par host_vars/<hote>.yml ou group_vars/firewall.yml.
+# Format : liste de { format, location, [label] }.
+wazuh_agent_logfiles: []

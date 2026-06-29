@@ -1,0 +1,17 @@
+---
+# ============================================================================
+#  Rôle ca_trust — variables
+# ============================================================================
+# Services qui CHARGENT le magasin de confiance système au démarrage puis le
+# gardent en mémoire : après une rotation/MAJ du CA racine il faut les
+# redémarrer, sinon ils continuent de valider les pairs TLS contre l'ANCIEN
+# bundle -> « x509: certificate signed by unknown authority » (Teleport) ou
+# « HTTP 500 » sur le back-channel OIDC cURL (Web RH / Moodle, mod_php).
+#
+# Seuls les services RÉELLEMENT présents sur l'hôte sont redémarrés (intersection
+# avec service_facts, cf. tasks/main.yml) : la liste peut donc rester ici large.
+# Les unités php*-fpm (nom versionné, ex. php8.3-fpm) sont en plus détectées
+# dynamiquement — utile si un service bascule un jour d'Apache/mod_php vers FPM.
+ca_trust_reload_services:
+  - teleport.service # agents Teleport -> bastion central (x509 unknown authority)
+  - apache2.service # mod_php : cURL OIDC de Web RH et Moodle (HTTP 500 OIDC)

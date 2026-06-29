@@ -1,0 +1,10 @@
+[Unit]
+Description=Planification de la sauvegarde immuable UniCampus (restic)
+
+[Timer]
+OnCalendar={{ backup_schedule }}
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

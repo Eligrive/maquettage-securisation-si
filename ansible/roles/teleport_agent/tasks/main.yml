@@ -1,0 +1,69 @@
+---
+# ============================================================================
+#  Rôle teleport_agent — installe l'agent Teleport et le raccorde au bastion
+# ============================================================================
+
+- name: Créer le répertoire des keyrings APT
+  ansible.builtin.file:
+    path: /usr/share/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Ajouter la clé GPG Teleport
+  ansible.builtin.get_url:
+    url: "https://apt.releases.teleport.dev/gpg"
+    dest: /usr/share/keyrings/teleport-archive-keyring.asc
+    mode: "0644"
+
+- name: Ajouter le dépôt APT Teleport (stable/v{{ teleport_version }})
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/usr/share/keyrings/teleport-archive-keyring.asc] https://apt.releases.teleport.dev/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} stable/v{{ teleport_version }}"
+    filename: teleport
+    state: present
+
+- name: Installer l'agent Teleport
+  ansible.builtin.apt:
+    name: teleport
+    state: present
+    update_cache: true
+  retries: 3
+  delay: 10
+  register: _apt_teleport_agent
+  until: _apt_teleport_agent is succeeded
+
+# Override DNS : sur les AGENTS uniquement, le FQDN du proxy bastion doit pointer
+# vers l'IP réelle du bastion (tunnel inverse direct), pas vers le reverse proxy
+# nginx (dont la terminaison TLS casse le routage ALPN de Teleport). Les postes
+# humains gardent le split-DNS habituel (FQDN -> nginx) pour l'UI web du bastion.
+- name: Override DNS bastion (agents -> IP réelle du bastion, pas nginx)
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    line: "{{ teleport_bastion_ip }} {{ teleport_bastion_fqdn }}  # agent->bastion direct (tunnel teleport)"
+    regexp: '^\s*\S+\s+{{ teleport_bastion_fqdn | regex_escape }}\s+#\s+agent->bastion'
+    insertbefore: BOF
+    state: present
+  notify: restart teleport
+
+- name: Déployer la configuration de l'agent (/etc/teleport.yaml)
+  ansible.builtin.template:
+    src: teleport-agent.yaml.j2
+    dest: /etc/teleport.yaml
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart teleport
+
+# --- Durcissement SSH legacy (opt-out via teleport_agent_harden_ssh) ---------
+- name: Durcir OpenSSH (désactiver l'auth par mot de passe)
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?\s*PasswordAuthentication\s+'
+    line: "PasswordAuthentication no"
+  when: teleport_agent_harden_ssh | bool
+  notify: restart sshd
+
+- name: Activer et démarrer l'agent Teleport
+  ansible.builtin.systemd:
+    name: teleport
+    state: started
+    enabled: true

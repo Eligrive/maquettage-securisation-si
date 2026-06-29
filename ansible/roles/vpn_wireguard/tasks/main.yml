@@ -1,0 +1,79 @@
+---
+# ============================================================================
+#  Rôle vpn_wireguard — concentrateur WireGuard (remédiation §1.4)
+# ============================================================================
+
+- name: Installer WireGuard
+  ansible.builtin.apt:
+    name: wireguard
+    state: present
+    update_cache: true
+  retries: 3
+  delay: 10
+  register: _apt_wg
+  until: _apt_wg is succeeded
+
+- name: Activer le routage IPv4 au boot (clients VPN -> réseau interne)
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/99-uc-wg-forward.conf
+    content: "net.ipv4.ip_forward = 1\n"
+    owner: root
+    group: root
+    mode: "0644"
+  register: _wg_sysctl
+
+- name: Appliquer le forwarding immédiatement
+  ansible.builtin.command:
+    cmd: sysctl -w net.ipv4.ip_forward=1
+  changed_when: false
+
+# --- Détection de l'interface de sortie (masquerade des clients VPN) ---------
+# Via les faits Ansible (default_ipv4) : `ip` vit dans /usr/sbin, souvent hors
+# du PATH non interactif d'Ansible -> la détection par shell reviendrait vide.
+- name: Mémoriser l'interface de sortie (override explicite, sinon route par défaut)
+  ansible.builtin.set_fact:
+    wg_egress_if: >-
+      {{ wg_egress_interface if (wg_egress_interface | length > 0)
+         else (ansible_facts.default_ipv4.interface | default('')) }}
+
+# --- Clé privée du serveur (générée une seule fois, idempotent) --------------
+- name: Vérifier la présence de la clé privée serveur
+  ansible.builtin.stat:
+    path: "{{ wg_server_dir }}/server_private.key"
+  register: _wg_priv
+
+- name: Générer la paire de clés du serveur WireGuard
+  ansible.builtin.shell: >-
+    umask 077 &&
+    wg genkey | tee {{ wg_server_dir }}/server_private.key |
+    wg pubkey > {{ wg_server_dir }}/server_public.key
+  args:
+    creates: "{{ wg_server_dir }}/server_private.key"
+  when: not _wg_priv.stat.exists
+
+- name: Lire la clé privée serveur
+  ansible.builtin.slurp:
+    src: "{{ wg_server_dir }}/server_private.key"
+  register: _wg_priv_b64
+  no_log: true
+
+- name: Exposer la clé privée pour le template
+  ansible.builtin.set_fact:
+    wg_server_private_key: "{{ _wg_priv_b64.content | b64decode | trim }}"
+  no_log: true
+
+# --- Configuration de l'interface WireGuard ---------------------------------
+- name: Déployer la configuration WireGuard
+  ansible.builtin.template:
+    src: wg0.conf.j2
+    dest: "{{ wg_server_dir }}/{{ wg_interface }}.conf"
+    owner: root
+    group: root
+    mode: "0600"
+  notify: restart wireguard
+
+- name: Activer et démarrer WireGuard
+  ansible.builtin.systemd:
+    name: "wg-quick@{{ wg_interface }}"
+    state: started
+    enabled: true

@@ -1,0 +1,72 @@
+---
+# ============================================================================
+#  Rôle backups — client restic (sauvegardes immuables) — §5.2 / M22
+# ============================================================================
+
+- name: Installer restic
+  ansible.builtin.apt:
+    name: restic
+    state: present
+    update_cache: true
+  retries: 3
+  delay: 10
+  register: _apt_restic
+  until: _apt_restic is succeeded
+
+- name: Créer le répertoire de staging des dumps
+  ansible.builtin.file:
+    path: "{{ backup_staging_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Déposer l'environnement restic (URL dépôt + mot de passe)
+  ansible.builtin.copy:
+    dest: /etc/uc-backup.env
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      # {{ ansible_managed }}
+      RESTIC_REPOSITORY={{ backup_repo_url }}
+      RESTIC_PASSWORD={{ backup_password }}
+  no_log: true
+
+# NB : le dépôt restic n'est PAS initialisé ici. Le rest-server est en
+# --append-only et refuse l'init/écriture de clé sur un dépôt existant (HTTP 403),
+# et une init concurrente depuis plusieurs clients sur le dépôt UNIQUE et PARTAGÉ
+# est une course (un seul gagne, les autres -> 403). L'init est donc faite UNE
+# fois, côté serveur, sur le disque local (rôle backup_server, joué en premier
+# dans backups.yml). Les clients se contentent de DÉPOSER (mode append-only).
+
+- name: Déposer le script de sauvegarde
+  ansible.builtin.template:
+    src: uc-backup.sh.j2
+    dest: /usr/local/sbin/uc-backup
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Déposer l'unité systemd de sauvegarde
+  ansible.builtin.template:
+    src: uc-backup.service.j2
+    dest: /etc/systemd/system/uc-backup.service
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Déposer le timer systemd de sauvegarde
+  ansible.builtin.template:
+    src: uc-backup.timer.j2
+    dest: /etc/systemd/system/uc-backup.timer
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Activer le timer de sauvegarde
+  ansible.builtin.systemd:
+    name: uc-backup.timer
+    state: started
+    enabled: true
+    daemon_reload: true

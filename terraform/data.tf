@@ -3,13 +3,7 @@ data "openstack_networking_network_v2" "ext_net" {
   external = true
 }
 
-# OS utilisé par le firewall obsolète
-data "openstack_images_image_v2" "debian10" {
-  name        = "debian-10"
-  most_recent = true
-}
-
-# OS utilisé par la plupart des VM.
+# OS utilisé par toutes les VM (firewall central inclus).
 # Image communautaire Ubuntu 24.04 plus légère que ubuntu-jammy-22.04 :
 # tient sur les hosts cisco où ubuntu-jammy-22.04 ne se schedulait pas.
 # visibility = "community" : sans ça, Glance ne retourne pas les images

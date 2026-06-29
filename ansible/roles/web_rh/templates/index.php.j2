@@ -1,0 +1,198 @@
+<?php
+// ============================================================================
+//  Portail RH UniCampus+ — V2 DURCIE (déployé par Ansible, rôle web_rh)
+// ============================================================================
+//  Remédiations de l'analyse de risque :
+//   §4.1 SQLi  : 100 % des requêtes en PDO préparé (plus de concaténation).
+//   §4.2 auth  : authentification SSO Keycloak (OIDC) OBLIGATOIRE + RBAC
+//                (rôle realm Admin_RH requis) ; plus aucun accès anonyme.
+//   §5.1 audit : toute action de modification est journalisée (identité SSO +
+//                horodatage) en base (audit_rh) ET en syslog (-> SIEM Wazuh).
+//   §4.2 SO5   : modification RIB / salaire soumise à une VALIDATION À 4 YEUX
+//                (le validateur doit être un Admin_RH DIFFÉRENT du demandeur).
+// {{ ansible_managed }}
+
+require '{{ webrh_oidc_dir }}/vendor/autoload.php';
+
+use Jumbojett\OpenIDConnectClient;
+
+// --- Configuration OIDC (déposée par Ansible dans /etc/webrh-oidc.env) -------
+$cfg = parse_ini_file('{{ webrh_oidc_env }}');
+$required_role = $cfg['REQUIRED_REALM_ROLE'] ?? 'Admin_RH';
+
+session_start();
+openlog('webrh', LOG_PID, LOG_LOCAL0); // audit applicatif -> rsyslog -> Wazuh
+
+// --- Authentification SSO (Authorization Code Flow, client confidentiel) -----
+$oidc = new OpenIDConnectClient(
+    $cfg['OIDC_PROVIDER_URL'],
+    $cfg['OIDC_CLIENT_ID'],
+    $cfg['OIDC_CLIENT_SECRET']
+);
+// L'URI de redirection doit pointer vers le MÊME FQDN que celui utilisé par le
+// navigateur (sinon le cookie de session — donc l'état/nonce OIDC — est perdu au
+// retour). Le reverse proxy transmet le Host d'origine (proxy_set_header Host).
+// On valide ce Host contre une liste blanche, et les deux URIs sont déclarées
+// côté client Keycloak (cf. roles/keycloak kc-configure.sh.j2).
+$allowed_hosts = ['rh.unicampus.fr', 'webrh.unicampus.fr'];
+$host = $_SERVER['HTTP_HOST'] ?? '';
+$oidc->setRedirectURL(
+    in_array($host, $allowed_hosts, true)
+        ? "https://$host/auth-callback"
+        : $cfg['OIDC_REDIRECT_URI']
+);
+// jumbojett\OpenIDConnectClient::addScope() attend un TABLEAU de scopes
+// (et non une chaîne) : on passe donc la liste complète, vides filtrés.
+$oidc->addScope(array_values(array_filter(
+    explode(' ', $cfg['OIDC_SCOPES'] ?? 'openid profile email'),
+    static fn ($s) => $s !== ''
+)));
+// Le back-channel (token/userinfo) sort vers https://sso.unicampus.fr : la CA
+// interne est approuvée sur cet hôte (rôle ca_trust) -> vérification TLS active.
+$oidc->authenticate();
+
+// Nettoyage de l'URL de callback (?code=...) une fois la session établie.
+if (strpos($_SERVER['REQUEST_URI'] ?? '', '/auth-callback') === 0) {
+    header('Location: /');
+    exit;
+}
+
+$claims  = $oidc->getVerifiedClaims();
+$acteur  = $claims->preferred_username ?? ($claims->email ?? 'inconnu');
+$roles   = (array) ($claims->roles ?? []);
+
+// --- Contrôle d'accès (RBAC) : rôle realm Admin_RH obligatoire ---------------
+if (!in_array($required_role, $roles, true)) {
+    syslog(LOG_WARNING, "ACCES_REFUSE acteur=$acteur role_requis=$required_role");
+    http_response_code(403);
+    echo "<h1>Accès refusé</h1><p>Le rôle « " . htmlspecialchars($required_role)
+       . " » est requis. Connecté en tant que " . htmlspecialchars($acteur) . ".</p>";
+    exit;
+}
+
+// --- Connexion base (compte applicatif à privilèges minimaux, cf. schema.sql) -
+try {
+    $pdo = new PDO(
+        "mysql:host={{ webrh_db_host }};dbname={{ webrh_db_name }};charset=utf8mb4",
+        '{{ webrh_db_user }}', '{{ webrh_db_pass }}',
+        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false]
+    );
+} catch (PDOException $e) {
+    http_response_code(503);
+    echo "<p>Base RH indisponible.</p>";
+    exit;
+}
+
+function audit(PDO $pdo, string $acteur, string $action, string $cible, string $details): void {
+    $st = $pdo->prepare("INSERT INTO audit_rh (acteur, action, cible, details) VALUES (?,?,?,?)");
+    $st->execute([$acteur, $action, $cible, $details]);
+    syslog(LOG_NOTICE, "AUDIT acteur=$acteur action=$action cible=$cible details=$details");
+}
+
+function h($v): string { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); }
+
+$msg = '';
+
+// --- 1. DEMANDE de modification RIB / salaire (ne modifie RIEN directement) ---
+if (($_POST['action'] ?? '') === 'request') {
+    $login   = trim($_POST['login'] ?? '');
+    $salaire = (int) ($_POST['salaire'] ?? 0);
+    $rib     = trim($_POST['rib'] ?? '');
+    $st = $pdo->prepare(
+        "INSERT INTO rib_pending (login, nouveau_rib, nouveau_salaire, demandeur)
+         VALUES (?,?,?,?)"
+    );
+    $st->execute([$login, $rib, $salaire, $acteur]);
+    audit($pdo, $acteur, 'DEMANDE_MODIF', $login, "salaire=$salaire rib=$rib");
+    $msg = "<p style='color:green'>Demande enregistrée. Elle doit être validée par un autre administrateur RH.</p>";
+}
+
+// --- 2. VALIDATION à 4 yeux : applique la demande si validateur != demandeur --
+if (($_POST['action'] ?? '') === 'validate') {
+    $pid = (int) ($_POST['pending_id'] ?? 0);
+    $st  = $pdo->prepare("SELECT * FROM rib_pending WHERE id=? AND statut='EN_ATTENTE'");
+    $st->execute([$pid]);
+    $p = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$p) {
+        $msg = "<p style='color:red'>Demande introuvable ou déjà traitée.</p>";
+    } elseif ($p['demandeur'] === $acteur) {
+        // Séparation des tâches : interdiction de valider sa propre demande (SO5).
+        syslog(LOG_WARNING, "AUTO_VALIDATION_REFUSEE acteur=$acteur pending_id=$pid");
+        $msg = "<p style='color:red'>Vous ne pouvez pas valider votre propre demande (contrôle à 4 yeux).</p>";
+    } else {
+        $u = $pdo->prepare("UPDATE employes SET salaire=?, rib=? WHERE login=?");
+        $u->execute([$p['nouveau_salaire'], $p['nouveau_rib'], $p['login']]);
+        $v = $pdo->prepare("UPDATE rib_pending SET statut='VALIDE', validateur=?, ts_validation=NOW() WHERE id=?");
+        $v->execute([$acteur, $pid]);
+        audit($pdo, $acteur, 'VALIDATION', $p['login'],
+              "demandeur={$p['demandeur']} salaire={$p['nouveau_salaire']} rib={$p['nouveau_rib']}");
+        $msg = "<p style='color:green'>Modification validée et appliquée.</p>";
+    }
+}
+
+// --- 3. REJET d'une demande --------------------------------------------------
+if (($_POST['action'] ?? '') === 'reject') {
+    $pid = (int) ($_POST['pending_id'] ?? 0);
+    $st  = $pdo->prepare("UPDATE rib_pending SET statut='REJETE', validateur=?, ts_validation=NOW() WHERE id=? AND statut='EN_ATTENTE'");
+    $st->execute([$acteur, $pid]);
+    audit($pdo, $acteur, 'REJET', (string) $pid, "demande rejetée");
+    $msg = "<p>Demande rejetée.</p>";
+}
+
+// ============================================================================
+//  Rendu
+// ============================================================================
+echo "<h1>Portail RH UniCampus+</h1>";
+echo "<p>Connecté : <b>" . h($acteur) . "</b> (rôles : " . h(implode(', ', $roles))
+   . ") — <a href='" . h($cfg['OIDC_PROVIDER_URL']) . "/protocol/openid-connect/logout'>déconnexion</a></p>";
+echo $msg;
+
+// --- Recherche (PDO préparé : plus de SQLi, §4.1) ---------------------------
+$login = trim($_GET['login'] ?? '');
+echo '<h2>Recherche</h2><form><input name="login" placeholder="login"><button>Rechercher</button></form>';
+if ($login !== '') {
+    $st = $pdo->prepare("SELECT login,nom,poste,salaire,rib FROM employes WHERE login = ?");
+    $st->execute([$login]);
+    audit($pdo, $acteur, 'CONSULTATION', $login, 'recherche employé');
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        echo "<p>" . h($row['nom']) . " — " . h($row['poste']) . " — "
+           . h($row['salaire']) . " EUR — RIB: " . h($row['rib']) . "</p>";
+    }
+}
+
+// --- Formulaire de DEMANDE de modification (workflow 4 yeux, §4.2/SO5) -------
+echo <<<HTML
+<h2>Demander une modification RIB / salaire</h2>
+<form method="post">
+  <input type="hidden" name="action" value="request">
+  Login : <input name="login" placeholder="login"><br>
+  Salaire (EUR) : <input name="salaire" type="number"><br>
+  RIB (IBAN) : <input name="rib" size="34" placeholder="FR76..."><br>
+  <button>Soumettre la demande</button>
+</form>
+HTML;
+
+// --- Demandes en attente de validation par un AUTRE administrateur -----------
+echo "<h2>Demandes en attente de validation</h2>";
+$pend = $pdo->query("SELECT * FROM rib_pending WHERE statut='EN_ATTENTE' ORDER BY ts_demande DESC")
+            ->fetchAll(PDO::FETCH_ASSOC);
+if (!$pend) {
+    echo "<p>Aucune demande en attente.</p>";
+}
+foreach ($pend as $p) {
+    $self = ($p['demandeur'] === $acteur);
+    echo "<div style='border:1px solid #ccc;padding:6px;margin:4px'>";
+    echo "<b>" . h($p['login']) . "</b> — salaire=" . h($p['nouveau_salaire'])
+       . " RIB=" . h($p['nouveau_rib']) . " — demandé par <i>" . h($p['demandeur'])
+       . "</i> le " . h($p['ts_demande']);
+    echo "<form method='post' style='display:inline'>"
+       . "<input type='hidden' name='pending_id' value='" . h($p['id']) . "'>";
+    if ($self) {
+        echo " <span style='color:#888'>(votre demande — un autre Admin_RH doit valider)</span>";
+        echo " <button name='action' value='reject'>Annuler</button>";
+    } else {
+        echo " <button name='action' value='validate'>Valider</button>";
+        echo " <button name='action' value='reject'>Rejeter</button>";
+    }
+    echo "</form></div>";
+}

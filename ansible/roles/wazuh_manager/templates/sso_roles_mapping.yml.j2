@@ -1,0 +1,6 @@
+{{ wazuh_sso_opensearch_role }}:
+  reserved: false
+  hidden: false
+  backend_roles:
+    - "{{ wazuh_sso_admin_realm_role }}"
+  description: "Acces admin Wazuh reserve au groupe Equipe_DSI (SSO Keycloak)"

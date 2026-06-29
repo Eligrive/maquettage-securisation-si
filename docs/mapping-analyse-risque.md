@@ -142,30 +142,34 @@ le **chemin retenu**, et la **démonstrabilité actuelle** (post-modifications).
 | SO6 | Aucune sauvegarde immuable | absence volontaire |
 | SO6 | Pas de contrôle d'accès NFS recherche | [calc-recherche.sh](../terraform/scripts/calc-recherche.sh) (export `*`) |
 
-## 7. Plan de traitement (A5.3) — état dans la maquette v1
+## 7. Plan de traitement (A5.3) — état d'implémentation V2
 
-La maquette v1 implémente **délibérément zéro mesure** du plan A5.3 — c'est
-le SI dégradé. Le tableau ci-dessous indique, pour chaque mesure prioritaire,
-ce qu'il faudra modifier dans Terraform pour passer à la v2.
+La maquette **v1** (archivée dans [`maquette_vuln/`](../maquette_vuln/))
+implémente délibérément zéro mesure — c'est le SI dégradé. La maquette **active
+(V2)** implémente désormais l'essentiel du plan A5.3 (rôles Ansible + Terraform).
+L'état détaillé par faille est tenu à jour dans
+[docs/V2/solutions.md](V2/solutions.md#état-dimplémentation-des-remédiations-v2).
 
-### 7.1 Mesures P1 (T0+3 mois) — non implémentées en v1
+### 7.1 Mesures P1 (T0+3 mois) — état V2
 
-| Code | Mesure | Action v2 dans Terraform |
-|---|---|---|
-| M01 | PSSI + politique de mots de passe | Ajouter PAM `pam_pwquality` + rotation, supprimer comptes faibles |
-| M02 | Cycle de vie des comptes | Provisionnement central (LDAP comme source) au lieu de `useradd` par script |
-| M05 | Sensibilisation phishing | Hors scope Terraform |
-| M07 | Cloisonnement réseau (VLANs) | Découper en `uc-net-etudiants`, `uc-net-admin`, `uc-net-recherche`, `uc-net-dmz`, ajouter SG par VLAN |
-| M08 | Suppression bind LDAP anonyme + LDAPS | Modifier slapd config (ACL + TLS) |
-| M09 | Migration hashs SHA1 → bcrypt | Remplacer `SHA1(...)` dans db-rh.sh par bcrypt |
-| M10 | Suppression sudo NOPASSWD | Retirer `/etc/sudoers.d/90-uc-nopasswd` + `91-uc-dsi`, exiger mot de passe |
-| M11 | HTTPS partout | Ajouter Let's Encrypt / cert PKI sur moodle, web-rh, mail |
-| M12 | Restriction écoute db-rh sur localhost | Changer `bind-address` de 0.0.0.0 vers 127.0.0.1 ou IP web-rh |
-| M14 | Comptes VPN individuels | Remplacer le compte unique de chap-secrets par un compte par utilisateur, ou migrer vers WireGuard (M13) |
-| M15 | MFA applications critiques | Plugin Moodle MFA, MFA web-rh, MFA VPN |
-| M17 | Logs centralisés | Ajouter VM rsyslog/Graylog + forwarder sur chaque VM |
-| M22 | Sauvegardes immuables | Hors scope Terraform direct (stockage S3 Object Lock) |
-| M24 | Snapshots automatiques | À configurer côté hyperviseur OpenStack |
+Statut : ✅ implémenté · ➖ partiel · ⬜ à faire.
+
+| Code | Mesure | Statut V2 | Implémentation |
+|---|---|---|---|
+| M01 | PSSI + politique de mots de passe | ➖ | Réinit. forcée au 1er login (SSO) ; PAM `pam_pwquality` non posé |
+| M02 | Cycle de vie des comptes | ✅ | LDAP source d'autorité + fédération Keycloak (`srv_ldap`, `keycloak`) |
+| M05 | Sensibilisation phishing | ⬜ | Hors scope technique |
+| M07 | Cloisonnement réseau (VLANs) | ✅ | `terraform/network.tf` (VLAN 101-108) + `fw_central` |
+| M08 | Suppression bind LDAP anonyme + LDAPS | ✅ | `srv_ldap` (ACL anti-anonyme + LDAPS PKI) |
+| M09 | Migration hashs SHA1 → bcrypt | ✅ | `db_rh` : colonne de hash supprimée, auth déléguée au SSO |
+| M10 | Suppression sudo NOPASSWD | ✅ | `maquette_accounts` (compte nominatif + sudo à mot de passe) |
+| M11 | HTTPS partout | ✅ | reverse proxy TLS (PKI) + LDAPS/SMTPS |
+| M12 | Restriction écoute db-rh | ✅ | `db_rh` (`bind-address` = IP VLAN RH, GRANT restreints) |
+| M14 | Comptes VPN individuels | ✅ | `vpn_wireguard` (WireGuard, clés par utilisateur) |
+| M15 | MFA applications critiques | ➖ | OTP Keycloak natif (activation par groupe à finaliser) |
+| M17 | Logs centralisés | ✅ | lot Supervision (Wazuh) + audit applicatif web-rh |
+| M22 | Sauvegardes immuables | ✅ | rôles `backups` / `backup_server` (restic append-only) |
+| M24 | Snapshots automatiques | ⬜ | À configurer côté hyperviseur OpenStack |
 
 ### 7.2 Mesures P2/P3 (T0+6 à +18 mois) — non implémentées
 

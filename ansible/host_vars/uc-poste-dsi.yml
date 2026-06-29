@@ -1,0 +1,40 @@
+---
+# ============================================================================
+#  uc-poste-dsi — poste DSI / admin (rôle poste)
+# ============================================================================
+# sudo NOPASSWD, documents administratifs sensibles, identifiants admin en clair
+# (anti-pattern volontaire §3.4/§6.3).
+
+poste_packages:
+  - openssh-client
+  - nfs-common
+  - smbclient
+
+# Bureau distant TigerVNC (rôle vnc_server) — accès graphique pour démos/tests
+# via tunnel SSH. Écoute sur 127.0.0.1:5901 uniquement (display :1).
+#   ssh -J ubuntu@<FIP_firewall> -L 5901:127.0.0.1:5901 ubuntu@192.168.103.1 -N
+vnc_enabled: true
+
+# Comptes : 'ubuntu' = compte d'automatisation IaC (sudo NOPASSWD, conservé pour
+# Ansible/Terraform) ; 'jmoreau' = admin DSI NOMINATIF avec sudo à mot de passe.
+# V2 : plus de compte partagé 'dsi' (§2.5).
+maquette_accounts:
+  - { name: ubuntu, create_user: false, sudo_nopasswd: true }
+  - { name: jmoreau, password: "{{ admin_dsi_password }}", sudo: true }
+
+# Documents administratifs / DSI (leurres) — poste de l'admin nominatif jmoreau.
+loot_assets_dir: poste-dsi
+loot_dests:
+  - { path: /opt/loot, owner: root, group: root }
+  - { path: /home/ubuntu/Documents, owner: ubuntu, group: ubuntu }
+  - { path: /home/jmoreau/Documents, owner: jmoreau, group: jmoreau }
+
+# Emplacement prévu pour une éventuelle clé d'admin (cf. NOTE ci-dessous).
+poste_dirs:
+  - { path: /home/ubuntu/.ssh, owner: ubuntu, group: ubuntu, mode: "0700" }
+
+# V2 (remédiation §4.5) : plus AUCUN fichier de credentials en clair sur le poste.
+# Les secrets d'infrastructure sont gérés hors de l'OS (coffre-fort / bastion) et
+# l'authentification se fait via le SSO. Le fichier /home/dsi/credentials-admin.txt
+# (compte dsi, VPN partagé, root/rhapp MariaDB, admin LDAP) est supprimé.
+poste_files: []

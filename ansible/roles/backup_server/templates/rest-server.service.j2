@@ -1,0 +1,22 @@
+[Unit]
+Description=restic REST server (dépôt de sauvegardes immuable, append-only)
+After=network.target
+
+[Service]
+User=restic
+Group=restic
+# --append-only : les clients ne peuvent PAS supprimer/écraser de données ->
+# sauvegardes immuables (anti-rançongiciel SO2 / anti-effacement SO6).
+# --no-auth : maquette (accès restreint par le pare-feu). En prod : htpasswd
+# (option --htpasswd-file) ou bucket S3 Object Lock.
+ExecStart=/usr/local/bin/rest-server \
+  --path {{ backup_server_data_dir }} \
+  --listen {{ backup_server_listen }} \
+{% if backup_server_append_only %}
+  --append-only \
+{% endif %}
+  --no-auth
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

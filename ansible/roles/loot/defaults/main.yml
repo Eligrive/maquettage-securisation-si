@@ -1,0 +1,21 @@
+---
+# ============================================================================
+#  Rôle loot — dépôt des documents-leurres (PDF) sur les hôtes de la maquette
+# ============================================================================
+#
+# Remplace l'injection base64 des PDF dans le user_data (ancien cloudinit.tf).
+# Les PDF vivent dans le dépôt sous assets/<dir>/ et sont poussés par Ansible
+# (module copy) vers les hôtes. Ces fichiers sont des LEURRES : ils matérialisent
+# l'impact (exfiltration de documents confidentiels) dans les scénarios d'attaque.
+#
+# Format (défini par host_vars/<hote>.yml) :
+#   loot_assets_dir: srv-moodle          # sous-dossier de assets/
+#   loot_dests:                          # destinations recevant TOUS les .pdf du dossier
+#     - { path: /opt/loot, owner: root, group: root }
+#     - { path: /var/www/html/moodle/uc-docs, owner: www-data, group: www-data }
+
+# Racine des assets dans le dépôt (ansible/ est un sous-dossier du repo).
+loot_src_root: "{{ playbook_dir }}/../assets"
+
+loot_assets_dir: ""
+loot_dests: []

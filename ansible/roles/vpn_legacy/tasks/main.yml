@@ -1,0 +1,55 @@
+---
+# ============================================================================
+#  Rôle vpn_legacy — pptpd (PPTP/MPPE-128, compte partagé)
+# ============================================================================
+
+- name: Ajouter le PPA fournissant pptpd
+  ansible.builtin.apt_repository:
+    repo: "{{ vpn_pptpd_ppa }}"
+    state: present
+    update_cache: true
+
+- name: Installer pptpd
+  ansible.builtin.apt:
+    name: pptpd
+    state: present
+    update_cache: true
+  retries: 3
+  delay: 10
+  register: _apt_pptpd
+  until: _apt_pptpd is succeeded
+
+- name: Configurer le démon pptpd (localip / remoteip)
+  ansible.builtin.template:
+    src: pptpd.conf.j2
+    dest: /etc/pptpd.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart pptpd
+
+- name: Configurer les options ppp (MPPE-128, refus PAP/CHAP)
+  ansible.builtin.copy:
+    src: pptpd-options
+    dest: /etc/ppp/pptpd-options
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart pptpd
+
+- name: Déclarer le compte VPN partagé (chap-secrets)
+  ansible.builtin.lineinfile:
+    path: /etc/ppp/chap-secrets
+    regexp: "^{{ vpn_account_login }}\\s+pptpd\\s"
+    line: "{{ vpn_account_login }} pptpd {{ vpn_account_secret }} *"
+    create: true
+    owner: root
+    group: root
+    mode: "0600"
+  notify: restart pptpd
+
+- name: Activer et démarrer pptpd
+  ansible.builtin.systemd:
+    name: pptpd
+    state: started
+    enabled: true

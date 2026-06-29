@@ -1,0 +1,27 @@
+---
+# ============================================================================
+#  Rôle bastion — Teleport (auth + proxy) sur uc-srv-bastion + connecteur OIDC
+# ============================================================================
+#  Reprend V2_scripts/{bastion,setup_oidc_teleport}.sh. Le bastion est le point
+#  de passage UNIQUE des sessions d'administration (SSH + DB), proxifié en HTTPS
+#  par nginx (bastion.unicampus.fr) et fédéré à Keycloak (OIDC).
+
+teleport_dir: "/etc/teleport.d"
+teleport_cert_dir: "/var/lib/teleport/certs"
+
+# Certificat propre au bastion (issu du rôle pki : bastion.*), servi par le
+# proxy_service Teleport en interne (nginx relaie en HTTPS vers 3080).
+teleport_cert_name: "bastion"
+
+# Connecteur OIDC : SSO Teleport via Keycloak. NB : les connecteurs OIDC/SAML
+# sont une fonctionnalité Teleport ENTERPRISE ; l'édition OSS ne supporte QUE le
+# connecteur GitHub (verrouillé sur github.com, inutilisable avec Keycloak). La
+# config OIDC est déployée fidèlement aux scripts V2 mais son application est
+# tolérante à l'échec (cf. teleport_oidc_required) : inopérante en OSS, conservée
+# telle quelle pour une éventuelle bascule Teleport Enterprise (où elle suffit à
+# activer le SSO Keycloak sans autre changement).
+teleport_oidc_required: false
+
+# Marqueur d'idempotence (application des resources tctl).
+teleport_configured_marker: "/var/lib/teleport/.uc-configured"
+teleport_force_configure: false

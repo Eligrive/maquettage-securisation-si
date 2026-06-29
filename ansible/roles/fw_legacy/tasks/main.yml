@@ -1,0 +1,164 @@
+---
+# ============================================================================
+#  Rôle fw_legacy — politique pare-feu complète (idempotente)
+# ============================================================================
+
+# --- Détection des interfaces (noms non garantis : eth0/ens3...) -------------
+- name: Détecter l'interface campus (porte {{ fw_campus_ip }})
+  ansible.builtin.shell: >-
+    ip -o -4 addr show | awk '/{{ fw_campus_ip | replace('.', '\\.') }}\// {print $2; exit}'
+  register: _fw_campus_if
+  changed_when: false
+
+- name: Détecter l'interface DMZ (porte {{ fw_dmz_primary_ip }})
+  ansible.builtin.shell: >-
+    ip -o -4 addr show | awk '/{{ fw_dmz_primary_ip | replace('.', '\\.') }}\// {print $2; exit}'
+  register: _fw_dmz_if
+  changed_when: false
+
+- name: Vérifier que les deux interfaces sont identifiées
+  ansible.builtin.assert:
+    that:
+      - _fw_campus_if.stdout | length > 0
+      - _fw_dmz_if.stdout | length > 0
+    fail_msg: "Interfaces non détectées (campus='{{ _fw_campus_if.stdout }}' dmz='{{ _fw_dmz_if.stdout }}'). cloud-init a-t-il bien démarré le réseau ?"
+
+- name: Mémoriser les noms d'interfaces
+  ansible.builtin.set_fact:
+    fw_campus_if: "{{ _fw_campus_if.stdout }}"
+    fw_dmz_if: "{{ _fw_dmz_if.stdout }}"
+
+# --- IP forwarding + désactivation des ICMP redirects ------------------------
+- name: Activer le forwarding IPv4 et désactiver les redirects (sysctl.d)
+  ansible.builtin.copy:
+    src: 99-uc-forward.conf
+    dest: /etc/sysctl.d/99-uc-forward.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload sysctl forward
+
+# --- Alias IP sur l'interface DMZ (service systemd de persistance) -----------
+- name: Déployer le script d'alias DMZ
+  ansible.builtin.template:
+    src: uc-fw-aliases.sh.j2
+    dest: /usr/local/sbin/uc-fw-aliases
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Déployer l'unité systemd des alias DMZ
+  ansible.builtin.template:
+    src: uc-fw-aliases.service.j2
+    dest: /etc/systemd/system/uc-fw-aliases.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload systemd
+
+- name: Activer et (re)lancer le service d'alias DMZ
+  ansible.builtin.systemd:
+    name: uc-fw-aliases.service
+    enabled: true
+    state: started
+    daemon_reload: true
+
+# --- Helpers conntrack PPTP --------------------------------------------------
+- name: Charger les modules conntrack PPTP au boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/uc-pptp-nat.conf
+    content: "{{ fw_pptp_modules | join('\n') }}\n"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Charger les modules conntrack PPTP immédiatement
+  ansible.builtin.command:
+    cmd: "modprobe {{ item }}"
+  loop: "{{ fw_pptp_modules }}"
+  changed_when: false
+  failed_when: false
+
+# --- Politique iptables ACCEPT (firewall obsolète) ---------------------------
+- name: Politique ACCEPT sur les chaînes filter
+  ansible.builtin.iptables:
+    chain: "{{ item }}"
+    policy: ACCEPT
+  loop:
+    - INPUT
+    - FORWARD
+    - OUTPUT
+
+- name: Règle résiduelle (vestige) — ACCEPT INPUT tcp/{{ item }}
+  ansible.builtin.iptables:
+    chain: INPUT
+    protocol: tcp
+    destination_port: "{{ item }}"
+    jump: ACCEPT
+    action: append
+    comment: "uc-fw residuel"
+  loop: "{{ fw_residual_tcp_ports }}"
+  notify: save iptables
+
+# --- DNAT ingress (services exposés sur les alias DMZ) -----------------------
+- name: DNAT ingress vers les services campus
+  ansible.builtin.iptables:
+    table: nat
+    chain: PREROUTING
+    destination: "{{ item.dmz_ip }}"
+    protocol: "{{ item.proto }}"
+    destination_port: "{{ item.dport | default(omit) }}"
+    jump: DNAT
+    to_destination: "{{ item.to }}{{ (':' ~ item.to_port) if item.to_port is defined else '' }}"
+    action: append
+    comment: "uc-dnat {{ item.name }}"
+  loop: "{{ fw_dnat_rules }}"
+  loop_control:
+    label: "{{ item.name }}"
+  notify: save iptables
+
+# --- SNAT / MASQUERADE sur les deux interfaces -------------------------------
+# Egress (campus -> DMZ -> Internet) : masque les VMs derrière l'IP DMZ de fw-legacy.
+- name: MASQUERADE egress (campus -> DMZ)
+  ansible.builtin.iptables:
+    table: nat
+    chain: POSTROUTING
+    out_interface: "{{ fw_dmz_if }}"
+    source: "{{ fw_campus_cidr }}"
+    jump: MASQUERADE
+    action: append
+    comment: "uc-snat egress"
+  notify: save iptables
+
+# Ingress (DMZ -> DNAT -> campus) : hide-NAT derrière l'IP campus de fw-legacy.
+- name: MASQUERADE ingress (DMZ -> campus)
+  ansible.builtin.iptables:
+    table: nat
+    chain: POSTROUTING
+    out_interface: "{{ fw_campus_if }}"
+    jump: MASQUERADE
+    action: append
+    comment: "uc-snat ingress"
+  notify: save iptables
+
+# --- Persistance des règles iptables -----------------------------------------
+- name: Préconfigurer iptables-persistent (autosave)
+  ansible.builtin.debconf:
+    name: iptables-persistent
+    question: "iptables-persistent/{{ item }}"
+    vtype: boolean
+    value: "true"
+  loop:
+    - autosave_v4
+    - autosave_v6
+
+- name: Installer iptables-persistent
+  ansible.builtin.apt:
+    name: iptables-persistent
+    state: present
+    update_cache: true
+  retries: 3
+  delay: 10
+  register: _apt_iptp
+  until: _apt_iptp is succeeded
+  notify: save iptables

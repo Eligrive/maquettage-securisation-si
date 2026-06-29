@@ -1,0 +1,8 @@
+---
+# SSO Keycloak (souvent en conteneur Docker). Les logs d'événements d'auth
+# Keycloak sont écrits sur la sortie standard -> journald. On lit aussi le
+# fichier applicatif s'il est monté. La collecte journald par défaut de l'agent
+# couvre déjà les conteneurs ; on ajoute un emplacement explicite si présent.
+wazuh_agent_logfiles:
+  - format: "syslog"
+    location: "/opt/keycloak/data/log/keycloak.log"

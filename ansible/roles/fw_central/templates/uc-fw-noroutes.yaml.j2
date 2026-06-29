@@ -1,0 +1,15 @@
+# Géré par Ansible (rôle fw_central) — NE PAS éditer à la main.
+# Le firewall est gateway .254 de CHAQUE VLAN : sans ceci, le DHCP de chaque VLAN
+# lui pousse une route par défaut + des /32 vers les DNS (8.8.8.8 / 1.1.1.1) + la
+# metadata, toutes via .254 = LUI-MÊME -> trou noir (et les /32 DNS shadowent la
+# route par défaut). Les interfaces VLAN gardent leur IP mais n'installent AUCUNE
+# route DHCP ; seul le transit ({{ fw_transit_if }}) porte défaut / DNS / metadata.
+network:
+  version: 2
+  ethernets:
+{% for ifc in fw_vlan_ifaces %}
+    {{ ifc }}:
+      dhcp4: true
+      dhcp4-overrides:
+        use-routes: false
+{% endfor %}

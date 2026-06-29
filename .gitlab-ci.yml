@@ -2,6 +2,7 @@ stages:
   - lint_and_validate
   - plan
   - apply
+  - provision
 
 # Les fichiers .tf sont dans le sous-dossier terraform/ : on s'y place avant
 # chaque job (sinon terraform tourne à la racine et ne voit aucune config).
@@ -88,5 +89,80 @@ terraform_apply:
     - terraform apply -auto-approve -parallelism=6
   rules:
     # N'apparaît QUE sur develop et main, et nécessite un clic humain
+    - if: '$CI_COMMIT_BRANCH == "develop" || $CI_COMMIT_BRANCH == "main"'
+      when: manual
+
+# ---------------------------------------------------------
+# LINT Ansible : vérifie la syntaxe des playbooks/rôles du lot Supervision.
+# Ne se connecte à rien (pas d'OpenStack, pas de SSH). Tourne sur toutes les
+# branches comme le terraform_check.
+# ---------------------------------------------------------
+ansible_syntax:
+  stage: lint_and_validate
+  image: alpine:3.20
+  # On surcharge le before_script global (qui fait `cd terraform/`).
+  before_script:
+    - apk add --no-cache ansible
+  script:
+    - cd "${CI_PROJECT_DIR}/ansible"
+    - ansible-playbook --syntax-check -i inventory/hosts.ini site.yml
+
+# ---------------------------------------------------------
+# PROVISION Ansible : déploie TOUTE la maquette APRÈS le terraform_apply via
+# site.yml = provision.yml (base v1 : pare-feu, services, comptes, leurres,
+# postes) PUIS supervision.yml (SIEM Wazuh + Suricata). Strictement MANUEL.
+#
+# Topologie V2 SEGMENTÉE : inventory/hosts.ini, rebond SSH via la Floating IP du
+# firewall central (gateway de tous les VLAN). Le firewall est provisionné EN
+# PREMIER (forwarding/NAT) pour que les autres VMs aient accès Internet.
+#
+# Variables CI/CD requises (en plus de celles d'OpenStack du terraform_apply) :
+#   - ANSIBLE_SSH_PRIVATE_KEY_B64 : clé privée SSH (correspondant à
+#       TF_VAR_ssh_public_key) encodée en base64, masquée.
+#       Génération :  base64 -w0 ~/.ssh/id_ed25519
+#   - SSH_JUMP_HOST (optionnel) : rebond pour atteindre les VMs sans Floating IP.
+#       Par défaut dérivé de l'output Terraform firewall_floating_ip
+#       (ubuntu@<FIP_firewall>). Surcharger si besoin (ex. bastion).
+# ---------------------------------------------------------
+ansible_provision:
+  stage: provision
+  image:
+    name: hashicorp/terraform:latest
+    entrypoint: [""]
+  needs:
+    - terraform_apply
+  before_script:
+    - apk add --no-cache ansible openssh-client bash coreutils openssl
+  script:
+    # 1. Récupérer les outputs Terraform (Floating IPs) via le state GitLab
+    - cd "${TF_ROOT}"
+    - *tf_init_backend
+    - export FW_FIP="$(terraform output -raw firewall_floating_ip)"
+    # 2. Préparer la clé SSH (jump + cibles) et désactiver le host-key checking
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - echo "$ANSIBLE_SSH_PRIVATE_KEY_B64" | base64 -d > ~/.ssh/id_ansible
+    - chmod 600 ~/.ssh/id_ansible
+    - printf 'Host *\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n' > ~/.ssh/config
+    - eval "$(ssh-agent -s)"
+    - ssh-add ~/.ssh/id_ansible
+    # 3. Générer l'inventaire segmenté avec la vraie Floating IP du SIEM
+    - cd "${CI_PROJECT_DIR}"
+    - TF_DIR="${TF_ROOT}" bash ansible/scripts/gen-inventory.sh ansible/inventory/hosts.ini ansible/inventory/hosts.generated.ini
+    # 4. Déployer la maquette complète (rebond = firewall ; wwwroot = FIP moodle)
+    - cd ansible
+    # GitLab checkout le dossier en world-writable -> Ansible ignore ansible.cfg
+    # (pipelining, ControlPersist=120s, forks=10...). On retire l'écriture
+    # groupe/autres pour qu'il soit "de confiance" et effectivement chargé.
+    - chmod -R go-w "${CI_PROJECT_DIR}/ansible"
+    - JUMP="${SSH_JUMP_HOST:-ubuntu@${FW_FIP}}"
+    # NE PAS surcharger moodle_wwwroot : en topologie V2 segmentée (hosts.ini), le
+    # défaut du rôle (https://moodle.unicampus.fr, via le reverse proxy + SSO) est
+    # requis. Forcer http://<FIP_moodle> (vestige V1 flat) fige Moodle sur l'IP
+    # publique en HTTP -> redirection hors HTTPS + SSO OIDC cassé (redirect_uri /
+    # sslproxy). cf. en-tête de provision.yml.
+    - ansible-playbook -i inventory/hosts.generated.ini site.yml
+      -e "ssh_jump_host=${JUMP}"
+      --private-key ~/.ssh/id_ansible
+  rules:
     - if: '$CI_COMMIT_BRANCH == "develop" || $CI_COMMIT_BRANCH == "main"'
       when: manual
