@@ -1,0 +1,21 @@
+---
+# ============================================================================
+#  uc-poste-prof — poste enseignant-chercheur (rôle poste)
+# ============================================================================
+# Identifiants stockés en clair (mauvaise pratique volontaire) donnant accès à
+# Moodle et à la recherche.
+
+poste_packages:
+  - nfs-common
+  - smbclient
+poste_packages_optional:
+  - firefox # snap sur Ubuntu récent -> best-effort
+
+# Compte Unix nominatif (cred reuse).
+maquette_accounts:
+  - { name: jdupont, password: unicampus2024 }
+
+# V2 (remédiation §4.5) : plus de fichier d'identifiants en clair sur le poste.
+# Avec le SSO (un seul login, MFA possible), il n'y a plus de "mot de passe par
+# service" à noter. L'ancien /home/ubuntu/identifiants.txt est supprimé.
+poste_files: []

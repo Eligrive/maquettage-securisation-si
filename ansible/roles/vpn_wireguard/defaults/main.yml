@@ -1,0 +1,28 @@
+---
+# ============================================================================
+#  Rôle vpn_wireguard — VPN WireGuard (remplace PPTP/MPPE) — V2
+# ============================================================================
+# Remédiation §1.4 : remplace PPTP (MPPE-128/RC4, cassable) par WireGuard
+# (crypto moderne), et le COMPTE PARTAGÉ unique par des accès INDIVIDUELS
+# (une paire de clés par utilisateur -> plus de secret commun, révocation par
+# simple retrait du pair). Pas de mot de passe partagé.
+
+wg_interface: "wg0"
+wg_listen_port: 51820
+wg_server_dir: "/etc/wireguard"
+
+# Tunnel : adresse du serveur + sous-réseau des clients VPN.
+wg_server_ip: "10.8.0.1"
+wg_client_subnet: "10.8.0.0/24"
+
+# Interface de sortie pour le masquerade des clients VPN vers le réseau interne.
+# Vide = auto-détection (interface portant la route par défaut).
+wg_egress_interface: ""
+
+# Pairs VPN INDIVIDUELS (un par utilisateur). La clé PRIVÉE reste sur le poste
+# de l'utilisateur ; on ne déclare ici que sa clé PUBLIQUE (générée par
+# `wg genkey | wg pubkey`). Aucun secret partagé. Exemple :
+#   wg_peers:
+#     - { name: jmoreau, pubkey: "Abc123...=", ip: "10.8.0.11/32" }
+#     - { name: jdupont, pubkey: "Def456...=", ip: "10.8.0.12/32" }
+wg_peers: []

@@ -1,0 +1,18 @@
+# {{ ansible_managed }}
+# WireGuard — concentrateur VPN UniCampus (remédiation §1.4).
+# Crypto moderne (Curve25519/ChaCha20) ; un PAIR par utilisateur (clé publique
+# individuelle) -> plus de compte/secret partagé. Révocation = retrait du pair.
+[Interface]
+Address = {{ wg_server_ip }}/{{ wg_client_subnet | regex_replace('^.*/', '') }}
+ListenPort = {{ wg_listen_port }}
+PrivateKey = {{ wg_server_private_key }}
+# NAT des clients VPN vers le réseau interne (sortie via l'interface du VLAN VPN).
+PostUp = iptables -t nat -A POSTROUTING -s {{ wg_client_subnet }} -o {{ wg_egress_if }} -j MASQUERADE
+PostDown = iptables -t nat -D POSTROUTING -s {{ wg_client_subnet }} -o {{ wg_egress_if }} -j MASQUERADE
+{% for p in wg_peers %}
+
+[Peer]
+# {{ p.name }}
+PublicKey = {{ p.pubkey }}
+AllowedIPs = {{ p.ip }}
+{% endfor %}

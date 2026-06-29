@@ -1,0 +1,42 @@
+---
+# ============================================================================
+#  uc-calc-recherche — calcul recherche (NFS + Samba + PostgreSQL + Jupyter)
+# ============================================================================
+
+# --- Provisioning maquette (rôle calc_recherche + comptes + leurres) --------
+# Comptes nominatifs (cred reuse) + compte applicatif "partenaire" pa1 dont les
+# credentials "fuités" servent SO4 (accès aux données scientifiques partagées).
+maquette_accounts:
+  - { name: jdupont, password: unicampus2024 }
+  - { name: sleblanc, password: recherche2024 }
+  - { name: jmoreau, password: "{{ admin_dsi_password }}", sudo: true }
+  - { name: pa1, password: partenaire2024 }
+
+# Données de recherche (leurres) déposées dans le partage NFS/Samba.
+loot_assets_dir: calc-recherche
+loot_dests:
+  - { path: /opt/loot, owner: root, group: root }
+  - { path: /srv/recherche, owner: root, group: root }
+
+# --- Sauvegarde immuable (rôle backups, §5.2/M22) ---------------------------
+# Dump PostgreSQL (résultats expérimentaux) + données scientifiques partagées.
+backup_predump: "sudo -u postgres pg_dump lrid_results > {{ backup_staging_dir }}/recherche.sql"
+backup_paths:
+  - /srv/recherche
+
+# --- Supervision (agent Wazuh) ----------------------------------------------
+wazuh_agent_logfiles:
+  - format: "syslog"
+    location: "/var/log/samba/log.smbd"
+  - format: "postgresql_log"
+    location: "/var/log/postgresql/postgresql-16-main.log"
+  - format: "syslog"
+    location: "/var/log/syslog"
+
+# --- Bastion Teleport (rôle teleport_agent) ---------------------------------
+# Machine recherche : accès SSH ET base PostgreSQL contrôlés par le bastion
+# (cf. V2_scripts/join_recherche_bastion.sh).
+teleport_agent_ssh_enabled: true
+teleport_agent_env_label: "recherche"
+teleport_agent_databases:
+  - { name: "lrid_results", protocol: "postgres", uri: "localhost:5432", env: "recherche" }

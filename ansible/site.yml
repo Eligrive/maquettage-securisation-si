@@ -1,0 +1,32 @@
+---
+# ============================================================================
+#  Playbook maître — déploiement complet de la maquette UniCampus+
+# ============================================================================
+#
+# Ansible est l'outil de DÉPLOIEMENT DE LA MODÉLISATION (construction de la
+# maquette pédagogique vulnérable), PAS l'outil d'administration du SI modélisé.
+# Il déploie en deux temps :
+#
+#   1. provision.yml   — base maquette v1 (ex cloud-init) : pare-feu, services
+#                        applicatifs, comptes (cred-reuse), leurres, postes.
+#                        Tags : fw | ldap | mail | db-rh | web-rh | moodle |
+#                               calc | vpn | postes
+#   2. supervision.yml — lot v2 Supervision : SIEM Wazuh + IDS/IPS Suricata.
+#                        Tags : siem | ids | agents
+#   3. backups.yml     — lot v2 Sauvegardes immuables (restic append-only).
+#                        Tags : backups | backup-server
+#
+# Terraform fournit l'INFRASTRUCTURE (VM, réseau, FIP) + un cloud-init minimal ;
+# Ansible fait tout le provisioning logiciel, idempotent et rejouable.
+#
+# Exécution (topologie flat = maquette v1 déployable) :
+#   cd ansible/
+#   ansible-playbook -i inventory/hosts.flat.ini site.yml \
+#       -e ssh_jump_host="ubuntu@<FIP_fw-legacy>" \
+#       -e moodle_wwwroot="http://<FIP_moodle>"
+#
+# Pour ne jouer qu'un lot : provision.yml, supervision.yml ou backups.yml.
+
+- import_playbook: provision.yml
+- import_playbook: supervision.yml
+- import_playbook: backups.yml

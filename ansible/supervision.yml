@@ -1,0 +1,65 @@
+---
+# ============================================================================
+#  Playbook — lot Supervision (SIEM Wazuh + IDS/IPS Suricata)
+# ============================================================================
+#
+# Importé par site.yml APRÈS provision.yml (la maquette doit exister avant qu'on
+# y installe les agents). Jouable seul pour ne (re)déployer que la supervision.
+#
+# Ordre voulu :
+#   1. Déployer le manager (le SIEM doit écouter avant l'enrôlement des agents).
+#   2. Installer la sonde Suricata sur le firewall central.
+#   3. Installer/enrôler les agents Wazuh partout (le firewall, membre du
+#      groupe [agents], reçoit aussi son agent qui lit l'eve.json de Suricata).
+#
+# Exécution :
+#   cd ansible/
+#   ansible-playbook site.yml                 # build maquette + supervision (segmenté)
+#   ansible-playbook supervision.yml          # supervision seule
+#   ansible-playbook -i inventory/hosts.flat.ini supervision.yml   # flat
+#
+# Tags : --tags siem | ids | agents pour ne jouer qu'une partie.
+
+- name: Attendre que les hôtes supervisés soient joignables en SSH
+  # Cible le groupe [wazuh] (siem + agents) et NON [all] : les postes BYOD
+  # (groupe [postes_byod]) ne sont pas provisionnés et peuvent être injoignables.
+  hosts: wazuh
+  gather_facts: false
+  tasks:
+    - name: Attendre la connexion SSH (VMs fraîchement déployées / cloud-init)
+      ansible.builtin.wait_for_connection:
+        timeout: 600
+      tags: [always]
+
+- name: SIEM — Wazuh all-in-one (manager + indexer + dashboard)
+  hosts: siem
+  gather_facts: true
+  become: true
+  roles:
+    # Le SIEM n'est PAS membre de [maquette] : on lui distribue ici l'ancre PKI
+    # (back-channel OIDC vers sso.unicampus.fr) et la résolution split-DNS des
+    # FQDN *.unicampus.fr. Indispensable au SSO Keycloak du dashboard (cf.
+    # wazuh_manager : openid_connect_url + root_ca). Dépend du rôle pki (rootCA
+    # généré par provision.yml).
+    - role: ca_trust
+      tags: [siem, pki, ca, sso]
+    - role: unicampus_dns
+      tags: [siem, dns, sso]
+    - role: wazuh_manager
+      tags: [siem, manager]
+
+- name: IDS/IPS — sonde Suricata sur le firewall central
+  hosts: firewall
+  gather_facts: true
+  become: true
+  roles:
+    - role: suricata_ids
+      tags: [ids, suricata]
+
+- name: Agents — Wazuh HIDS + collecte de logs sur tous les hôtes supervisés
+  hosts: agents
+  gather_facts: true
+  become: true
+  roles:
+    - role: wazuh_agent
+      tags: [agents]

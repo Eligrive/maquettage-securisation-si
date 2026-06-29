@@ -1,0 +1,31 @@
+---
+# ============================================================================
+#  Playbook — lot V2 Sauvegardes immuables (restic) — §5.2 / M22
+# ============================================================================
+#  Contre-mesure à SO2 (rançongiciel) et SO6 (destruction par vengeance) :
+#  sauvegardes automatisées, chiffrées, hors hôte et IMMUABLES (dépôt restic
+#  rest-server en --append-only : un client compromis ne peut ni altérer ni
+#  supprimer l'historique).
+#
+#  Exécution :
+#    cd ansible/
+#    ansible-playbook -i inventory/hosts.ini backups.yml \
+#        -e ssh_jump_host="ubuntu@<FIP_bastion_ou_fw>"
+#
+#  Tags : backups | backup-server.
+
+# Le dépôt immuable est hébergé sur l'hôte SIEM (trusted, hors VLAN applicatifs).
+- name: Serveur de sauvegarde immuable (rest-server append-only)
+  hosts: backup_server
+  gather_facts: true
+  become: true
+  roles:
+    - { role: backup_server, tags: [backups, backup-server] }
+
+# Les hôtes porteurs de données critiques sauvegardent vers le dépôt append-only.
+- name: Clients de sauvegarde (restic -> dépôt immuable)
+  hosts: backup_clients
+  gather_facts: true
+  become: true
+  roles:
+    - { role: backups, tags: [backups] }

@@ -1,0 +1,30 @@
+---
+# ============================================================================
+#  uc-db-rh — base RH MariaDB
+# ============================================================================
+
+# --- Provisioning maquette (rôle db_rh + comptes) ---------------------------
+# V2 : aucun compte interactif local. L'administration de la base (DBA) se fait
+# via le bastion en protocole base de données (Teleport db), sans shell SSH
+# (teleport_agent_ssh_enabled: false). Plus de compte partagé 'dsi' (§2.5).
+maquette_accounts: []
+
+# --- Supervision (agent Wazuh) ----------------------------------------------
+# Données sensibles (salaires, IBAN). On remonte les logs d'erreur et le
+# general/slow query log s'ils sont activés.
+wazuh_agent_logfiles:
+  - format: "syslog"
+    location: "/var/log/mysql/error.log"
+  - format: "mysql_log"
+    location: "/var/log/mysql/mysql.log"
+
+# --- Sauvegarde immuable (rôle backups, §5.2/M22) ---------------------------
+# Dump cohérent de la base RH (salaires, IBAN) avant archivage restic.
+backup_predump: "mysqldump --single-transaction --routines --triggers rh > {{ backup_staging_dir }}/rh.sql"
+
+# --- Bastion Teleport (rôle teleport_agent) ---------------------------------
+# Hôte purement « base de données » : pas de service SSH Teleport, accès MySQL
+# contrôlé par le bastion (cf. V2_scripts/join_dbrh_bastion.sh).
+teleport_agent_ssh_enabled: false
+teleport_agent_databases:
+  - { name: "rh", protocol: "mysql", uri: "localhost:3306", env: "rh" }

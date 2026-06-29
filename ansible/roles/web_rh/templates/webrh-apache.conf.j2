@@ -1,0 +1,21 @@
+# {{ ansible_managed }}
+# Portail RH UniCampus+ (V2 durcie) — front du reverse proxy (HTTPS + SSO).
+# Le TLS est terminé par le reverse proxy nginx (PKI interne) ; ce vhost reçoit
+# le trafic déjà authentifié en HTTP interne sur le VLAN RH.
+<VirtualHost *:80>
+    ServerName webrh.unicampus.fr
+    ServerAlias rh.unicampus.fr
+    DocumentRoot /var/www/html
+
+    # Toutes les URL non-fichier (dont /auth-callback de l'OIDC) sont servies
+    # par index.php, qui assure l'authentification SSO avant tout traitement.
+    <Directory /var/www/html>
+        FallbackResource /index.php
+        Options -Indexes
+        AllowOverride None
+        Require all granted
+    </Directory>
+
+    ErrorLog  ${APACHE_LOG_DIR}/webrh_error.log
+    CustomLog ${APACHE_LOG_DIR}/webrh_access.log combined
+</VirtualHost>

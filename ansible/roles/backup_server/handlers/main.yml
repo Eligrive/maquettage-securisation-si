@@ -1,0 +1,7 @@
+---
+- name: restart rest-server
+  ansible.builtin.systemd:
+    name: rest-server
+    state: restarted
+    enabled: true
+    daemon_reload: true

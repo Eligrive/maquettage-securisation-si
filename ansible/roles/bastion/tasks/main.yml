@@ -1,0 +1,144 @@
+---
+# ============================================================================
+#  Rôle bastion — installe Teleport (auth+proxy) + certs PKI + resources OIDC
+# ============================================================================
+
+# --- 1. Dépôt + installation Teleport ---------------------------------------
+- name: Créer le répertoire des keyrings APT
+  ansible.builtin.file:
+    path: /usr/share/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Ajouter la clé GPG Teleport
+  ansible.builtin.get_url:
+    url: "https://apt.releases.teleport.dev/gpg"
+    dest: /usr/share/keyrings/teleport-archive-keyring.asc
+    mode: "0644"
+
+- name: Ajouter le dépôt APT Teleport (stable/v{{ teleport_version }})
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/usr/share/keyrings/teleport-archive-keyring.asc] https://apt.releases.teleport.dev/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} stable/v{{ teleport_version }}"
+    filename: teleport
+    state: present
+
+- name: Installer Teleport
+  ansible.builtin.apt:
+    name: teleport
+    state: present
+    update_cache: true
+  retries: 3
+  delay: 10
+  register: _apt_teleport
+  until: _apt_teleport is succeeded
+
+# --- 2. Certificat PKI du bastion (proxy_service HTTPS interne) --------------
+- name: Créer le répertoire des certificats Teleport
+  ansible.builtin.file:
+    path: "{{ teleport_cert_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Déposer la fullchain du bastion
+  ansible.builtin.copy:
+    src: "{{ pki_dir }}/{{ teleport_cert_name }}.fullchain.crt"
+    dest: "{{ teleport_cert_dir }}/bastion.fullchain.crt"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart teleport
+
+- name: Déposer la clé privée du bastion
+  ansible.builtin.copy:
+    src: "{{ pki_dir }}/{{ teleport_cert_name }}.key"
+    dest: "{{ teleport_cert_dir }}/bastion.key"
+    owner: root
+    group: root
+    mode: "0600"
+  notify: restart teleport
+
+# --- 3. Configuration Teleport (auth + proxy) -------------------------------
+- name: Déployer /etc/teleport.yaml (auth + proxy)
+  ansible.builtin.template:
+    src: teleport.yaml.j2
+    dest: /etc/teleport.yaml
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart teleport
+
+- name: Activer et démarrer Teleport
+  ansible.builtin.systemd:
+    name: teleport
+    state: started
+    enabled: true
+
+- name: Appliquer la conf avant les opérations tctl
+  ansible.builtin.meta: flush_handlers
+
+# --- 4. Resources OIDC + rôles RBAC (cf. setup_oidc_teleport.sh) -------------
+- name: Créer le répertoire des resources Teleport
+  ansible.builtin.file:
+    path: "{{ teleport_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Déposer les resources Teleport (connecteur OIDC + rôles RBAC)
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "{{ teleport_dir }}/{{ item }}"
+    owner: root
+    group: root
+    mode: "0640"
+  loop:
+    - oidc-keycloak.yaml
+    - roles-rbac.yaml
+  register: _tele_resources
+
+- name: Attendre que le service auth Teleport soit prêt
+  ansible.builtin.command: tctl status
+  register: _tctl_status
+  until: _tctl_status.rc == 0
+  retries: 20
+  delay: 6
+  changed_when: false
+
+- name: Vérifier le marqueur de configuration Teleport
+  ansible.builtin.stat:
+    path: "{{ teleport_configured_marker }}"
+  register: _tele_marker
+
+- name: Créer les rôles RBAC Teleport
+  ansible.builtin.command:
+    cmd: "tctl create -f {{ teleport_dir }}/roles-rbac.yaml"
+  register: _tele_roles
+  changed_when: _tele_roles.rc == 0
+  when: >-
+    teleport_force_configure | bool
+    or _tele_resources is changed
+    or not _tele_marker.stat.exists
+
+- name: Créer le connecteur OIDC Keycloak (Enterprise — tolérant en OSS)
+  ansible.builtin.command:
+    cmd: "tctl create -f {{ teleport_dir }}/oidc-keycloak.yaml"
+  register: _tele_oidc
+  changed_when: _tele_oidc.rc == 0
+  failed_when: teleport_oidc_required | bool and _tele_oidc.rc != 0
+  when: >-
+    teleport_force_configure | bool
+    or _tele_resources is changed
+    or not _tele_marker.stat.exists
+
+- name: Poser le marqueur de configuration Teleport
+  ansible.builtin.file:
+    path: "{{ teleport_configured_marker }}"
+    state: touch
+    mode: "0600"
+  when: >-
+    teleport_force_configure | bool
+    or _tele_resources is changed
+    or not _tele_marker.stat.exists

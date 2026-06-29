@@ -1,0 +1,202 @@
+---
+# ============================================================================
+#  Playbook — base maquette v1 (migration cloud-init -> Ansible)
+# ============================================================================
+#
+# Déploie le provisioning logiciel des services, autrefois en scripts cloud-init
+# (terraform/scripts/*.sh). Idempotent et rejouable. Topologie V2 SEGMENTÉE
+# (VLAN 101-108, firewall central uc-srv-firewall) : utiliser inventory/hosts.ini
+# (défaut) et ssh_jump_host = FIP du firewall central.
+#
+# ORDRE IMPORTANT : le firewall central est provisionné EN PREMIER. Il active le
+# forwarding + NAT (gateway de tous les VLAN), sans quoi les autres VMs n'ont pas
+# d'accès Internet et leurs apt-get échouent.
+#
+# Exécution (topologie V2 segmentée) :
+#   cd ansible/
+#   ansible-playbook provision.yml \
+#       -e ssh_jump_host="ubuntu@<FIP_firewall>"
+#
+# ⚠️ NE PAS surcharger moodle_wwwroot en V2 : le défaut du rôle
+# (https://moodle.unicampus.fr, servi par le reverse proxy) est ce qu'il faut.
+# Forcer -e moodle_wwwroot="http://<FIP_moodle>" (vestige V1) fige Moodle sur
+# l'IP publique en HTTP -> redirection hors HTTPS + SSO cassé (« https pas
+# configuré »). L'override n'a de sens qu'en topologie FLAT V1 sans proxy.
+#
+# (Topologie FLAT V1 historique : inventory/hosts.flat.ini + rôle fw_legacy.)
+#
+# Tags base : fw | ldap | mail | db-rh | web-rh | moodle | calc | vpn | postes |
+#             vnc | chrome (navigateur + confiance PKI dans NSS).
+# Tags V2 IAM/PKI : pki | certs | ca | dns | proxy | sso | keycloak | roundcube |
+#                   bastion | teleport | iam.
+#   ex. ne (re)jouer que la PKI + le reverse proxy : --tags pki,proxy
+#       ne reconfigurer que le SSO Keycloak         : --tags keycloak
+#
+# Pré-requis V2 IAM/PKI : openssl sur le contrôleur (génération des certificats).
+
+# --- 0. PKI interne (contrôleur) : CA racine/intermédiaire + certs serveurs ---
+#  Génère la chaîne de confiance et les certificats AVANT tout déploiement TLS
+#  (reverse proxy, LDAPS, SMTPS, bastion). Tourne sur le contrôleur, idempotent.
+- name: PKI interne UniCampus (génération des certificats)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false # génération côté contrôleur sous ansible/pki/ (pas besoin de root)
+  roles:
+    - { role: pki, tags: [pki, certs] }
+
+# --- Attente de joignabilité (hors postes : DHCP/best-effort) ----------------
+- name: Attendre que les hôtes de la maquette soient joignables en SSH
+  hosts: maquette:!postes
+  gather_facts: false
+  tasks:
+    - name: Attendre la connexion SSH (VMs fraîchement déployées / cloud-init)
+      ansible.builtin.wait_for_connection:
+        timeout: 600
+      tags: [always]
+
+# --- 1. Pare-feu central EN PREMIER (gateway de tous les VLAN, active l'egress) -
+#  Héberge aussi le reverse proxy nginx V2 (terminaison TLS PKI + SSO).
+- name: Pare-feu central segmenté (uc-srv-firewall) + reverse proxy
+  hosts: firewall
+  gather_facts: true
+  become: true
+  roles:
+    - { role: common, tags: [common, fw] }
+    - { role: fw_central, tags: [fw] }
+    - { role: reverse_proxy, tags: [proxy, iam] }
+
+# --- 1bis. Base client V2 : confiance PKI + résolution interne (split DNS) -----
+#  Tous les serveurs approuvent la CA racine et résolvent *.unicampus.fr vers le
+#  reverse proxy. Indispensable au back-channel OIDC (apps -> sso.unicampus.fr).
+- name: Base client V2 (ancre de confiance PKI + split DNS)
+  hosts: maquette:!postes
+  gather_facts: false
+  become: true
+  roles:
+    - { role: ca_trust, tags: [pki, ca, iam] }
+    - { role: unicampus_dns, tags: [dns, iam] }
+
+# --- 2. Services applicatifs --------------------------------------------------
+- name: Annuaire LDAP
+  hosts: srv_ldap
+  gather_facts: true
+  become: true
+  roles:
+    - { role: common, tags: [common, ldap] }
+    - { role: maquette_accounts, tags: [accounts, ldap] }
+    - { role: srv_ldap, tags: [ldap] }
+
+- name: Base RH (MariaDB)
+  hosts: db_rh
+  gather_facts: true
+  become: true
+  roles:
+    - { role: common, tags: [common, db-rh] }
+    - { role: maquette_accounts, tags: [accounts, db-rh] }
+    - { role: db_rh, tags: [db-rh] }
+
+- name: Portail web RH (Apache/PHP, SQLi)
+  hosts: web_rh
+  gather_facts: true
+  become: true
+  roles:
+    - { role: common, tags: [common, web-rh] }
+    - { role: maquette_accounts, tags: [accounts, web-rh] }
+    - { role: loot, tags: [loot, web-rh] }
+    - { role: web_rh, tags: [web-rh] }
+
+- name: Messagerie (Postfix/Dovecot)
+  hosts: srv_mail
+  gather_facts: true
+  become: true
+  roles:
+    - { role: common, tags: [common, mail] }
+    - { role: maquette_accounts, tags: [accounts, mail] }
+    - { role: loot, tags: [loot, mail] }
+    - { role: srv_mail, tags: [mail] }
+
+# --- Lot V2 IAM : SSO Keycloak (APRÈS l'annuaire LDAP, qu'il fédère) ----------
+- name: SSO Keycloak (Docker — fédération LDAP + clients OIDC)
+  hosts: srv_sso
+  gather_facts: true
+  become: true
+  roles:
+    - { role: common, tags: [common, sso] }
+    - { role: keycloak, tags: [sso, keycloak, iam] }
+
+- name: Webmail Roundcube (front IMAP/SMTP de uc-srv-mail + OIDC)
+  hosts: srv_roundcube
+  gather_facts: true
+  become: true
+  roles:
+    - { role: common, tags: [common, roundcube] }
+    - { role: maquette_accounts, tags: [accounts, roundcube] }
+    - { role: srv_roundcube, tags: [roundcube, iam] }
+
+- name: LMS Moodle (Apache/PHP/MariaDB)
+  hosts: srv_moodle
+  gather_facts: true
+  become: true
+  roles:
+    - { role: common, tags: [common, moodle] }
+    - { role: maquette_accounts, tags: [accounts, moodle] }
+    - { role: srv_moodle, tags: [moodle] }   # <--- Moodle s'installe d'abord
+    - { role: loot, tags: [loot, moodle] }   # <--- Les leurres sont déposés ensuite
+
+- name: Calcul recherche (NFS/Samba/PostgreSQL/Jupyter)
+  hosts: calc_recherche
+  gather_facts: true
+  become: true
+  roles:
+    - { role: common, tags: [common, calc] }
+    - { role: maquette_accounts, tags: [accounts, calc] }
+    - { role: loot, tags: [loot, calc] }
+    - { role: calc_recherche, tags: [calc] }
+
+- name: Concentrateur VPN WireGuard (remplace PPTP/MPPE — §1.4)
+  hosts: vpn
+  gather_facts: true
+  become: true
+  roles:
+    - { role: common, tags: [common, vpn] }
+    - { role: vpn_wireguard, tags: [vpn] }
+
+# --- Lot V2 IAM : bastion Teleport (APRÈS Keycloak, dont il consomme l'OIDC) --
+- name: Bastion Teleport (auth + proxy + connecteur OIDC Keycloak)
+  hosts: srv_bastion
+  gather_facts: true
+  become: true
+  roles:
+    - { role: common, tags: [common, bastion] }
+    - { role: bastion, tags: [bastion, iam] }
+
+# Agents Teleport sur les nœuds infra (SSH) et bases (DB) — APRÈS le bastion.
+- name: Agents Teleport (raccordement des nœuds infra et bases au bastion)
+  hosts: teleport_agents
+  gather_facts: true
+  become: true
+  roles:
+    - { role: teleport_agent, tags: [teleport, iam] }
+
+# --- 3. Postes clients (best-effort : DHCP, BYOD non administrés) -------------
+- name: Postes clients (étudiant / enseignant / DSI)
+  hosts: postes
+  gather_facts: true
+  become: true
+  ignore_unreachable: true
+  roles:
+    - { role: common, tags: [common, postes] }
+    - { role: maquette_accounts, tags: [accounts, postes] }
+    - { role: loot, tags: [loot, postes] }
+    - { role: poste, tags: [postes] }
+    # Bureau distant TigerVNC (démos/tests) : ne s'active que là où host_vars
+    # définit vnc_enabled: true (uc-poste-etu, uc-poste-dsi). Accès via tunnel SSH.
+    - { role: vnc_server, tags: [vnc, postes] }
+    # V2 : les postes approuvent la CA interne et résolvent *.unicampus.fr.
+    - { role: ca_trust, tags: [pki, ca, iam] }
+    # Navigateur Chrome + confiance PKI dans NSS (Chrome n'utilise PAS le magasin
+    # système : sans ça, ERR_CERT_AUTHORITY_INVALID sur *.unicampus.fr). APRÈS
+    # ca_trust (réutilise son rootCA.crt). Gating chrome_enabled = vnc_enabled.
+    - { role: chrome_browser, tags: [chrome, browser, postes] }
+    - { role: unicampus_dns, tags: [dns, iam] }

@@ -1,0 +1,15 @@
+---
+# ============================================================================
+#  Rôle backup_server — dépôt restic distant APPEND-ONLY (immuable) — §5.2/M22
+# ============================================================================
+# rest-server lancé en --append-only : les clients peuvent AJOUTER des
+# sauvegardes mais ni les modifier ni les supprimer. C'est ce qui rend les
+# sauvegardes immuables face à un rançongiciel (SO2) ou un effacement
+# vengeur (SO6), même si l'hôte client est compromis en root.
+
+backup_server_version: "0.13.0"
+backup_server_listen: "0.0.0.0:8000"
+backup_server_data_dir: "/srv/restic"
+# Purge privilégiée (le serveur, lui, peut élaguer les anciennes versions).
+# --append-only n'empêche QUE les clients de supprimer.
+backup_server_append_only: true

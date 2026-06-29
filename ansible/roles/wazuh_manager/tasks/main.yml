@@ -1,0 +1,203 @@
+---
+# ============================================================================
+#  Rôle wazuh_manager — déploiement Wazuh all-in-one
+# ============================================================================
+#
+# Remplace un éventuel "script init" : idempotent (réexécutable), piloté par
+# l'inventaire, et capable de reconfigurer le manager sans réinstaller.
+
+- name: Vérifier que l'OS est de la famille Debian/Ubuntu
+  ansible.builtin.assert:
+    that: ansible_facts['os_family'] == "Debian"
+    fail_msg: "Le rôle wazuh_manager cible Ubuntu/Debian (image cloud de la maquette)."
+
+- name: Installer les prérequis (curl, tar)
+  ansible.builtin.apt:
+    name:
+      - curl
+      - tar
+    state: present
+    update_cache: true
+  retries: 3
+  delay: 10
+  register: _apt_prereq
+  until: _apt_prereq is succeeded
+
+- name: Détecter une installation Wazuh existante
+  ansible.builtin.stat:
+    path: /var/ossec/bin/wazuh-control
+  register: _wazuh_installed
+
+# --- Installation AIO (uniquement si absente) -------------------------------
+- name: Déployer Wazuh all-in-one (manager + indexer + dashboard)
+  when: not _wazuh_installed.stat.exists
+  block:
+    - name: Télécharger l'installeur assisté Wazuh
+      ansible.builtin.get_url:
+        url: "{{ wazuh_aio_installer_url }}"
+        dest: "{{ wazuh_aio_workdir }}/wazuh-install.sh"
+        mode: "0700"
+
+    - name: Lancer l'installation all-in-one (long ~10-15 min)
+      ansible.builtin.command:
+        cmd: "bash {{ wazuh_aio_workdir }}/wazuh-install.sh -a {{ '-i' if wazuh_aio_ignore_hw_check else '' }}"
+        chdir: "{{ wazuh_aio_workdir }}"
+        creates: /var/ossec/bin/wazuh-control
+      async: "{{ wazuh_aio_install_timeout }}"
+      poll: 30
+      register: _aio_install
+
+    - name: Marquer l'installation comme fraîchement effectuée
+      ansible.builtin.set_fact:
+        wazuh_freshly_installed: true
+
+# --- Récupération des identifiants générés ----------------------------------
+- name: Récupérer les identifiants du dashboard
+  when: wazuh_fetch_credentials
+  block:
+    - name: Extraire wazuh-passwords.txt de l'archive d'installation
+      ansible.builtin.command:
+        cmd: >-
+          tar -xf {{ wazuh_aio_workdir }}/wazuh-install-files.tar
+          -C {{ wazuh_aio_workdir }}
+          wazuh-install-files/wazuh-passwords.txt
+        creates: "{{ wazuh_aio_workdir }}/wazuh-install-files/wazuh-passwords.txt"
+      register: _extract_creds
+      failed_when: false
+
+    - name: Vérifier la présence du fichier d'identifiants
+      ansible.builtin.stat:
+        path: "{{ wazuh_aio_workdir }}/wazuh-install-files/wazuh-passwords.txt"
+      register: _creds_file
+
+    - name: Rapatrier les identifiants sur le control node
+      ansible.builtin.fetch:
+        src: "{{ wazuh_aio_workdir }}/wazuh-install-files/wazuh-passwords.txt"
+        dest: "{{ wazuh_credentials_local_dir }}/{{ inventory_hostname }}-wazuh-passwords.txt"
+        flat: true
+      when: _creds_file.stat.exists
+
+# --- Entrée syslog distante (équipements sans agent) ------------------------
+- name: Activer l'entrée syslog distante du manager
+  when: wazuh_manager_enable_syslog_input
+  ansible.builtin.blockinfile:
+    path: /var/ossec/etc/ossec.conf
+    # Marqueur en commentaire XML (un commentaire shell "#" casserait le parsing).
+    marker: "<!-- {mark} ANSIBLE MANAGED: entrée syslog distante -->"
+    insertbefore: "</ossec_config>"
+    block: |
+      <remote>
+        <connection>syslog</connection>
+        <port>{{ wazuh_manager_syslog_port }}</port>
+        <protocol>{{ wazuh_manager_syslog_protocol }}</protocol>
+      {% for net in wazuh_manager_syslog_allowed_ips %}
+        <allowed-ips>{{ net }}</allowed-ips>
+      {% endfor %}
+      </remote>
+  notify: restart wazuh-manager
+
+# --- Services -----------------------------------------------------------------
+- name: S'assurer que les services Wazuh sont démarrés et activés
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  loop:
+    - wazuh-indexer
+    - wazuh-manager
+    - wazuh-dashboard
+
+- name: Récapitulatif d'accès au dashboard
+  ansible.builtin.debug:
+    msg: >-
+      Wazuh dashboard : https://{{ ansible_host }} (port 443) — utilisateur 'admin'.
+      Mot de passe dans {{ wazuh_credentials_local_dir }}/{{ inventory_hostname }}-wazuh-passwords.txt
+      (clé "indexer_password" / utilisateur admin du dashboard).
+
+# ============================================================================
+#  V2 IAM — SSO Keycloak (OpenID Connect) du dashboard Wazuh (Equipe_DSI only)
+# ============================================================================
+#  ACCÈS RESTREINT : seuls les membres d'Equipe_DSI (rôle realm Admin_DSI) sont
+#  mappés sur un rôle OpenSearch admin dédié (unicampus_sso_admin). Tout autre
+#  utilisateur authentifié via Keycloak n'a AUCUN rôle -> dashboard refusé.
+#  L'auth « basic » (admin local) reste activée EN PARALLÈLE (multi-auth) comme
+#  filet anti-lock-out tant que le SSO n'est pas validé en live.
+#  NB : les modifs de la conf security de l'indexer (config.yml/roles*) ne sont
+#  prises en compte qu'après un push `securityadmin.sh` (elles vivent dans
+#  l'index .opendistro_security, pas seulement sur disque).
+- name: Configurer le SSO Keycloak du dashboard Wazuh
+  when:
+    - wazuh_sso_enabled | bool
+    - _wazuh_installed.stat.exists or (wazuh_freshly_installed | default(false))
+  block:
+
+    - name: SSO — déposer l'ancre PKI pour le back-channel OIDC (indexer)
+      ansible.builtin.copy:
+        src: "{{ wazuh_sso_indexer_root_ca_src }}"
+        dest: "{{ wazuh_indexer_secconf_dir }}/unicampus-root.pem"
+        owner: wazuh-indexer
+        group: wazuh-indexer
+        mode: "0640"
+      register: _sso_ca
+
+    - name: SSO — domaine OIDC openid_auth_domain (indexer config.yml)
+      ansible.builtin.blockinfile:
+        path: "{{ wazuh_indexer_secconf_dir }}/config.yml"
+        # Marqueur en commentaire indenté (6 espaces) : reste sous authc:.
+        marker: "      # {mark} ANSIBLE MANAGED: OIDC Keycloak (UniCampus SSO)"
+        insertafter: '^    authc:'
+        block: "{{ lookup('template', 'oidc_auth_domain.yml.j2') }}"
+      register: _sso_configyml
+
+    - name: SSO — rôle OpenSearch admin dédié (indexer roles.yml)
+      ansible.builtin.blockinfile:
+        path: "{{ wazuh_indexer_secconf_dir }}/roles.yml"
+        marker: "# {mark} ANSIBLE MANAGED: rôle SSO UniCampus (Equipe_DSI)"
+        block: "{{ lookup('template', 'sso_opensearch_role.yml.j2') }}"
+      register: _sso_roles
+
+    - name: SSO — mapping Admin_DSI -> rôle admin (indexer roles_mapping.yml)
+      ansible.builtin.blockinfile:
+        path: "{{ wazuh_indexer_secconf_dir }}/roles_mapping.yml"
+        marker: "# {mark} ANSIBLE MANAGED: mapping SSO UniCampus (Equipe_DSI)"
+        block: "{{ lookup('template', 'sso_roles_mapping.yml.j2') }}"
+      register: _sso_mapping
+
+    - name: SSO — appliquer la conf security de l'indexer (securityadmin)
+      ansible.builtin.command:
+        cmd: >-
+          {{ wazuh_indexer_securityadmin }}
+          -cd {{ wazuh_indexer_secconf_dir }}/
+          -nhnv
+          -cacert {{ wazuh_indexer_certs_dir }}/root-ca.pem
+          -cert {{ wazuh_indexer_certs_dir }}/admin.pem
+          -key {{ wazuh_indexer_certs_dir }}/admin-key.pem
+      environment:
+        JAVA_HOME: "{{ wazuh_indexer_jdk }}"
+      when: >-
+        _sso_ca is changed or _sso_configyml is changed
+        or _sso_roles is changed or _sso_mapping is changed
+      register: _securityadmin
+      changed_when: _securityadmin.rc == 0
+
+    - name: SSO — auth OIDC du dashboard (opensearch_dashboards.yml)
+      ansible.builtin.blockinfile:
+        path: "{{ wazuh_dashboard_config }}"
+        marker: "# {mark} ANSIBLE MANAGED: SSO Keycloak (UniCampus)"
+        block: "{{ lookup('template', 'dashboard_oidc.yml.j2') }}"
+      notify: restart wazuh-dashboard
+
+    # Le dashboard est Type=simple : `systemctl restart` rend la main dès le fork,
+    # AVANT un éventuel crash de validation de conf (~37 s plus tard). On force donc
+    # le restart maintenant puis on VÉRIFIE qu'il reste actif, sinon un SIEM
+    # silencieusement HS passerait inaperçu (cf. incident auth.type en tableau).
+    - name: SSO — appliquer le redémarrage du dashboard immédiatement
+      ansible.builtin.meta: flush_handlers
+
+    - name: SSO — vérifier que le dashboard RESTE actif (conf OIDC valide)
+      ansible.builtin.command: systemctl is-active wazuh-dashboard
+      register: _wazuh_dash_active
+      changed_when: false
+      retries: 10
+      delay: 10
+      until: _wazuh_dash_active.stdout == "active"

@@ -1,0 +1,86 @@
+---
+# ============================================================================
+#  Rôle wazuh_agent — installation + enrôlement + collecte de logs
+# ============================================================================
+
+- name: Vérifier que l'OS est de la famille Debian/Ubuntu
+  ansible.builtin.assert:
+    that: ansible_facts['os_family'] == "Debian"
+    fail_msg: "Le rôle wazuh_agent cible Ubuntu/Debian."
+
+- name: Installer les prérequis (gnupg, curl)
+  ansible.builtin.apt:
+    name:
+      - gnupg
+      - curl
+    state: present
+    update_cache: true
+  retries: 3
+  delay: 10
+  register: _apt_prereq
+  until: _apt_prereq is succeeded
+
+# --- Dépôt APT Wazuh --------------------------------------------------------
+- name: Télécharger la clé GPG Wazuh
+  ansible.builtin.get_url:
+    url: "{{ wazuh_agent_repo_key_url }}"
+    dest: /tmp/GPG-KEY-WAZUH
+    mode: "0644"
+
+- name: Installer la clé GPG dans un keyring dédié
+  ansible.builtin.command:
+    cmd: "gpg --batch --yes --dearmor -o {{ wazuh_agent_keyring }} /tmp/GPG-KEY-WAZUH"
+    creates: "{{ wazuh_agent_keyring }}"
+
+- name: Ajouter le dépôt APT Wazuh
+  ansible.builtin.apt_repository:
+    repo: "{{ wazuh_agent_repo_line }}"
+    filename: wazuh
+    state: present
+
+# --- Installation de l'agent ------------------------------------------------
+# Les variables d'environnement WAZUH_* sont lues par le postinst du paquet
+# pour pré-configurer ossec.conf (adresse du manager, groupe) à la 1re install.
+- name: Installer wazuh-agent
+  ansible.builtin.apt:
+    name: wazuh-agent
+    state: present
+    update_cache: true
+  environment:
+    WAZUH_MANAGER: "{{ wazuh_manager_address }}"
+    WAZUH_AGENT_GROUP: "{{ wazuh_agent_group }}"
+  notify: restart wazuh-agent
+
+# --- Idempotence de l'adresse du manager ------------------------------------
+# Sur une réexécution (agent déjà installé), le postinst ne rejoue pas : on
+# réaffirme l'adresse du manager dans ossec.conf.
+- name: Forcer l'adresse du manager dans ossec.conf
+  ansible.builtin.replace:
+    path: /var/ossec/etc/ossec.conf
+    regexp: "<address>.*?</address>"
+    replace: "<address>{{ wazuh_manager_address }}</address>"
+  notify: restart wazuh-agent
+
+# --- Collecte de logs applicatifs -------------------------------------------
+- name: Configurer la collecte des logs applicatifs (localfile)
+  ansible.builtin.blockinfile:
+    path: /var/ossec/etc/ossec.conf
+    marker: "<!-- {mark} ANSIBLE MANAGED: collecte logs applicatifs -->"
+    insertbefore: "</ossec_config>"
+    state: "{{ 'present' if (wazuh_agent_logfiles | length > 0) else 'absent' }}"
+    block: |
+      {% for lf in wazuh_agent_logfiles %}
+      <!-- {{ lf.label | default(lf.location) }} -->
+      <localfile>
+        <log_format>{{ lf.format }}</log_format>
+        <location>{{ lf.location }}</location>
+      </localfile>
+      {% endfor %}
+  notify: restart wazuh-agent
+
+# --- Service ----------------------------------------------------------------
+- name: Activer et démarrer wazuh-agent
+  ansible.builtin.systemd:
+    name: wazuh-agent
+    state: started
+    enabled: true

@@ -1,0 +1,93 @@
+---
+# ============================================================================
+#  Rôle backup_server — rest-server restic en append-only — §5.2/M22
+# ============================================================================
+
+- name: Créer l'utilisateur de service restic
+  ansible.builtin.user:
+    name: restic
+    system: true
+    create_home: false
+    shell: /usr/sbin/nologin
+
+- name: Créer le répertoire de données du dépôt
+  ansible.builtin.file:
+    path: "{{ backup_server_data_dir }}"
+    state: directory
+    owner: restic
+    group: restic
+    mode: "0700"
+
+# Initialisation du dépôt UNE SEULE FOIS, ici, sur le DISQUE LOCAL. C'est le
+# point clé : le rest-server tourne en --append-only et refuse toute création
+# de clé/config sur un dépôt déjà existant (-> HTTP 403). Les clients ne peuvent
+# donc PAS l'initialiser de façon fiable (course à l'init concurrente). On l'init
+# côté serveur via le système de fichiers (qui contourne la couche HTTP), puis
+# les clients se contentent de DÉPOSER (rôle backups). cf. backups.yml.
+- name: Installer restic (pour initialiser le dépôt localement)
+  ansible.builtin.apt:
+    name: restic
+    state: present
+    update_cache: true
+  retries: 3
+  delay: 10
+  register: _apt_restic_srv
+  until: _apt_restic_srv is succeeded
+
+- name: Initialiser le dépôt restic sur le disque local (idempotent)
+  ansible.builtin.command:
+    cmd: "restic -r {{ backup_server_data_dir }} init"
+  environment:
+    RESTIC_PASSWORD: "{{ backup_password }}"
+  register: _restic_srv_init
+  changed_when: "'created restic repository' in _restic_srv_init.stdout"
+  failed_when:
+    - _restic_srv_init.rc != 0
+    - "'already initialized' not in (_restic_srv_init.stderr | default(''))"
+    - "'already exists' not in (_restic_srv_init.stderr | default(''))"
+
+# Init exécutée en root -> on rend le dépôt au service restic, sinon le
+# rest-server (qui tourne en tant que 'restic') ne peut ni lire ni servir.
+- name: S'assurer que le dépôt appartient au service restic
+  ansible.builtin.file:
+    path: "{{ backup_server_data_dir }}"
+    state: directory
+    owner: restic
+    group: restic
+    recurse: true
+
+- name: Télécharger rest-server (binaire officiel)
+  ansible.builtin.unarchive:
+    src: "https://github.com/restic/rest-server/releases/download/v{{ backup_server_version }}/rest-server_{{ backup_server_version }}_linux_amd64.tar.gz"
+    dest: /tmp
+    remote_src: true
+    creates: "/tmp/rest-server_{{ backup_server_version }}_linux_amd64/rest-server"
+  retries: 3
+  delay: 10
+  register: _restsrv_dl
+  until: _restsrv_dl is succeeded
+
+- name: Installer le binaire rest-server
+  ansible.builtin.copy:
+    src: "/tmp/rest-server_{{ backup_server_version }}_linux_amd64/rest-server"
+    dest: /usr/local/bin/rest-server
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Déployer l'unité systemd rest-server (append-only)
+  ansible.builtin.template:
+    src: rest-server.service.j2
+    dest: /etc/systemd/system/rest-server.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart rest-server
+
+- name: Activer et démarrer rest-server
+  ansible.builtin.systemd:
+    name: rest-server
+    state: started
+    enabled: true
+    daemon_reload: true

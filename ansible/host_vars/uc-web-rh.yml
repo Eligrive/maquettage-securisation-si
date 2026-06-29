@@ -1,0 +1,25 @@
+---
+# ============================================================================
+#  uc-web-rh — portail web RH (Apache + PHP)
+# ============================================================================
+
+# --- Provisioning maquette (rôle web_rh + comptes + leurres) ----------------
+# Comptes nominatifs + admin DSI nominatif (sudo à mot de passe). V2 : plus de
+# compte partagé 'dsi' NOPASSWD (§2.5).
+maquette_accounts:
+  - { name: cfournier, password: finance2024 }
+  - { name: jmoreau, password: "{{ admin_dsi_password }}", sudo: true }
+
+# Documents RH (leurres) exposés.
+loot_assets_dir: web-rh
+loot_dests:
+  - { path: /opt/loot, owner: root, group: root }
+  - { path: /var/www/html/rh-docs, owner: www-data, group: www-data }
+
+# --- Supervision (agent Wazuh) ----------------------------------------------
+# Cible privilégiée (SO3 : injection SQL, accès non authentifié).
+wazuh_agent_logfiles:
+  - format: "apache"
+    location: "/var/log/apache2/access.log"
+  - format: "apache"
+    location: "/var/log/apache2/error.log"

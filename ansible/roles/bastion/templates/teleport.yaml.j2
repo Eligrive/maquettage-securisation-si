@@ -1,0 +1,34 @@
+# {{ ansible_managed }}
+# Bastion Teleport — auth + proxy (cf. V2_scripts/bastion.sh).
+# Le proxy est relayé en HTTPS par nginx (bastion.unicampus.fr -> :3080).
+version: v3
+teleport:
+  nodename: bastion.unicampus.fr
+  data_dir: /var/lib/teleport
+  log:
+    output: stderr
+    severity: INFO
+
+auth_service:
+  enabled: "yes"
+  cluster_name: "bastion.unicampus.fr"
+  listen_addr: 0.0.0.0:3025
+  # Jeton de jointure statique pré-partagé (maquette) : les agents node/db
+  # s'enrôlent avec {{ teleport_join_token }} (cf. rôle teleport_agent).
+  tokens:
+    - "node,db:{{ teleport_join_token }}"
+
+proxy_service:
+  enabled: "yes"
+  public_addr: bastion.unicampus.fr:443
+  web_listen_addr: 0.0.0.0:3080
+  listen_addr: 0.0.0.0:3023
+  tunnel_listen_addr: 0.0.0.0:3024
+  # Certificat émis par la PKI interne (terminaison TLS interne du proxy).
+  https_keypairs:
+    - key_file: {{ teleport_cert_dir }}/bastion.key
+      cert_file: {{ teleport_cert_dir }}/bastion.fullchain.crt
+
+# Le bastion ne sert pas de cible SSH : c'est un point de passage (routeur).
+ssh_service:
+  enabled: "no"

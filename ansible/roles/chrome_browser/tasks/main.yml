@@ -1,0 +1,101 @@
+---
+# ============================================================================
+#  Rôle chrome_browser — navigateur Google Chrome + confiance PKI interne (NSS)
+# ============================================================================
+#  Installe Google Chrome sur les postes graphiques et fait approuver l'ancre
+#  de confiance UniCampus dans la base NSS de l'utilisateur du bureau.
+#
+#  POURQUOI (cf. docs/V2/PKI.md §6) : sous Linux, Chrome (≥ M131) valide les
+#  certificats via son « Chrome Root Store » + sa base NSS personnelle
+#  (~/.pki/nssdb). Il N'UTILISE PAS le magasin système /etc/ssl/certs rempli par
+#  `update-ca-certificates` (rôle ca_trust). Sans cette étape, tout site interne
+#  HTTPS PKI s'affiche « Votre connexion n'est pas privée /
+#  NET::ERR_CERT_AUTHORITY_INVALID », alors que curl/openssl (magasin système)
+#  valident sans erreur. Vérifié sur la maquette (Chrome 149) : seul l'ajout
+#  dans NSS lève l'avertissement ; la politique d'entreprise CACertificates
+#  n'était pas honorée sur cette build.
+#
+#  DÉPEND du rôle ca_trust : {{ chrome_ca_src }} doit déjà exister sur l'hôte.
+#  Idempotent. Conditionné par chrome_enabled (= vnc_enabled par défaut : on ne
+#  l'active que là où il y a un bureau graphique).
+
+- name: Navigateur Chrome + confiance PKI (NSS)
+  when: chrome_enabled | bool
+  block:
+
+    - name: Installer le prérequis gnupg (dearmor de la clé du dépôt)
+      ansible.builtin.apt:
+        name: gnupg
+        state: present
+        update_cache: true
+      retries: 3
+      delay: 10
+      register: _apt_gnupg
+      until: _apt_gnupg is succeeded
+
+    - name: Créer le répertoire des trousseaux APT
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Télécharger la clé de signature Google
+      ansible.builtin.get_url:
+        url: "{{ chrome_apt_key_url }}"
+        dest: /tmp/google-linux-signing.pub
+        mode: "0644"
+      retries: 3
+      delay: 10
+      register: _chrome_key
+      until: _chrome_key is succeeded
+
+    - name: Installer la clé Google dans le trousseau (dearmor)
+      ansible.builtin.command:
+        cmd: "gpg --batch --yes --dearmor -o {{ chrome_apt_keyring }} /tmp/google-linux-signing.pub"
+        creates: "{{ chrome_apt_keyring }}"
+
+    - name: Ajouter le dépôt APT Google Chrome
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=amd64 signed-by={{ chrome_apt_keyring }}] https://dl.google.com/linux/chrome/deb/ stable main"
+        filename: google-chrome
+        state: present
+
+    - name: Installer Google Chrome + les outils NSS (certutil)
+      ansible.builtin.apt:
+        name:
+          - "{{ chrome_package }}"
+          - libnss3-tools
+        state: present
+        update_cache: true
+      retries: 3
+      delay: 10
+      register: _apt_chrome
+      until: _apt_chrome is succeeded
+
+    # --- Confiance : ancre UniCampus dans la base NSS de chaque user du bureau --
+    # Exécuté SOUS l'identité de l'utilisateur (become_user) : la base NSS doit
+    # lui appartenir, sinon Chrome (lancé en session) ne peut ni la lire ni
+    # l'écrire. Idempotent : on n'ajoute le certificat que s'il est absent.
+    - name: Approuver la CA UniCampus dans la base NSS (Chrome) de chaque utilisateur
+      become: true
+      become_user: "{{ item }}"
+      ansible.builtin.shell: |
+        set -e
+        DB="$HOME/.pki/nssdb"
+        mkdir -p "$DB"
+        [ -f "$DB/cert9.db" ] || certutil -d "sql:$DB" -N --empty-password
+        if certutil -d "sql:$DB" -L -n "{{ chrome_ca_nickname }}" >/dev/null 2>&1; then
+          echo NOCHANGE
+        else
+          certutil -d "sql:$DB" -A -t "C,," -n "{{ chrome_ca_nickname }}" -i "{{ chrome_ca_src }}"
+          echo CHANGED
+        fi
+      args:
+        executable: /bin/bash
+      register: _nss_trust
+      changed_when: "'CHANGED' in _nss_trust.stdout"
+      loop: "{{ chrome_trust_users }}"
+      loop_control:
+        label: "{{ item }}"

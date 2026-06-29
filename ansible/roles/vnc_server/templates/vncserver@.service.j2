@@ -1,0 +1,25 @@
+# {{ ansible_managed }}
+# Service systemd « template » TigerVNC : l'instance %i = numéro de display.
+#   ex. vncserver@1.service  ⇒  display :1  ⇒  port 5901
+#
+# Type=simple + « vncserver -fg » : Xvnc reste en avant-plan, systemd suit
+# directement le bon process (pas de PIDFile fragile). ExecStartPre nettoie une
+# éventuelle session/verrou résiduels (le « - » ignore l'échec si absent).
+[Unit]
+Description=Serveur TigerVNC (display %i) — utilisateur {{ vnc_user }}
+After=network.target
+
+[Service]
+Type=simple
+User={{ vnc_user }}
+Group={{ vnc_user }}
+WorkingDirectory={{ vnc_home }}
+Environment=HOME={{ vnc_home }}
+ExecStartPre=-{{ vnc_binary }} -kill :%i
+ExecStart={{ vnc_binary }} -fg :%i {{ '-localhost yes' if vnc_localhost_only | bool else '-localhost no' }} -geometry {{ vnc_geometry }} -depth {{ vnc_depth }}
+ExecStop={{ vnc_binary }} -kill :%i
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

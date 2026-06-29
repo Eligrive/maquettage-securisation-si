@@ -1,0 +1,133 @@
+---
+# ============================================================================
+#  Rôle pki — génération de la chaîne de confiance + certs serveurs (localhost)
+# ============================================================================
+#  cf. docs/V2/PKI.md (architecture à deux niveaux). Toutes les opérations
+#  openssl sont idempotentes (`creates:`) et tournent sur le contrôleur.
+
+- name: Vérifier qu'openssl est présent sur le contrôleur
+  ansible.builtin.command: openssl version
+  register: _openssl_ver
+  changed_when: false
+
+- name: Créer le répertoire PKI (clés privées — gitignored)
+  ansible.builtin.file:
+    path: "{{ pki_dir }}"
+    state: directory
+    mode: "0700"
+
+# --- 1. Autorité racine (auto-signée, hors-ligne) ---------------------------
+# En production la clé racine reste sur un poste sécurisé chiffrée AES-256 ;
+# ici elle est générée localement pour rendre la maquette reproductible.
+- name: Root CA — clé privée (4096 bits)
+  ansible.builtin.command:
+    cmd: "openssl genrsa -out {{ pki_dir }}/rootCA.key 4096"
+    creates: "{{ pki_dir }}/rootCA.key"
+
+- name: Root CA — certificat auto-signé
+  ansible.builtin.command:
+    cmd: >-
+      openssl req -x509 -new -nodes -key {{ pki_dir }}/rootCA.key -sha256
+      -days {{ pki_root_days }} -out {{ pki_dir }}/rootCA.crt
+      -subj "/C={{ pki_subject_country }}/ST={{ pki_subject_state }}/L={{ pki_subject_locality }}/O={{ pki_subject_org }}/OU={{ pki_ca_ou }}/CN={{ pki_root_cn }}"
+    creates: "{{ pki_dir }}/rootCA.crt"
+
+# --- 2. Autorité intermédiaire (signée par la racine) -----------------------
+- name: Intermediate CA — clé privée (4096 bits)
+  ansible.builtin.command:
+    cmd: "openssl genrsa -out {{ pki_dir }}/intermediateCA.key 4096"
+    creates: "{{ pki_dir }}/intermediateCA.key"
+
+- name: Intermediate CA — CSR
+  ansible.builtin.command:
+    cmd: >-
+      openssl req -new -key {{ pki_dir }}/intermediateCA.key
+      -out {{ pki_dir }}/intermediateCA.csr
+      -subj "/C={{ pki_subject_country }}/ST={{ pki_subject_state }}/L={{ pki_subject_locality }}/O={{ pki_subject_org }}/OU={{ pki_ca_ou }}/CN={{ pki_intermediate_cn }}"
+    creates: "{{ pki_dir }}/intermediateCA.csr"
+
+- name: Intermediate CA — extensions v3_ca
+  ansible.builtin.copy:
+    dest: "{{ pki_dir }}/intermediateCA.ext"
+    mode: "0600"
+    content: |
+      subjectKeyIdentifier=hash
+      authorityKeyIdentifier=keyid:always,issuer
+      basicConstraints=critical,CA:true,pathlen:0
+      keyUsage=critical,digitalSignature,cRLSign,keyCertSign
+
+- name: Intermediate CA — signature par la racine
+  ansible.builtin.command:
+    cmd: >-
+      openssl x509 -req -in {{ pki_dir }}/intermediateCA.csr -sha256
+      -days {{ pki_intermediate_days }}
+      -CA {{ pki_dir }}/rootCA.crt -CAkey {{ pki_dir }}/rootCA.key -CAcreateserial
+      -extfile {{ pki_dir }}/intermediateCA.ext
+      -out {{ pki_dir }}/intermediateCA.crt
+    creates: "{{ pki_dir }}/intermediateCA.crt"
+
+# Chaîne de confiance (intermédiaire + racine) — utile pour olcTLSCACertificate.
+- name: Construire la chaîne de CA (intermédiaire + racine)
+  ansible.builtin.shell:
+    cmd: "cat {{ pki_dir }}/intermediateCA.crt {{ pki_dir }}/rootCA.crt > {{ pki_dir }}/ca-chain.crt"
+    creates: "{{ pki_dir }}/ca-chain.crt"
+
+# --- 3. Certificats serveurs (leaf) — fullchain pour la confiance client -----
+- name: Leaf — clé privée (2048 bits)
+  ansible.builtin.command:
+    cmd: "openssl genrsa -out {{ pki_dir }}/{{ item.name }}.key 2048"
+    creates: "{{ pki_dir }}/{{ item.name }}.key"
+  loop: "{{ pki_server_certs }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Leaf — CSR
+  ansible.builtin.command:
+    cmd: >-
+      openssl req -new -key {{ pki_dir }}/{{ item.name }}.key
+      -out {{ pki_dir }}/{{ item.name }}.csr
+      -subj "/C={{ pki_subject_country }}/ST={{ pki_subject_state }}/L={{ pki_subject_locality }}/O={{ pki_subject_org }}/OU={{ pki_leaf_ou }}/CN={{ item.cn }}"
+    creates: "{{ pki_dir }}/{{ item.name }}.csr"
+  loop: "{{ pki_server_certs }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Leaf — extensions v3_req (SAN)
+  ansible.builtin.copy:
+    dest: "{{ pki_dir }}/{{ item.name }}.ext"
+    mode: "0600"
+    content: |
+      basicConstraints=CA:FALSE
+      keyUsage=critical,digitalSignature,keyEncipherment
+      extendedKeyUsage=serverAuth
+      subjectAltName={{ item.sans | map('regex_replace', '^', 'DNS:') | join(',') }}
+  loop: "{{ pki_server_certs }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Leaf — signature par la CA intermédiaire
+  ansible.builtin.command:
+    cmd: >-
+      openssl x509 -req -in {{ pki_dir }}/{{ item.name }}.csr -sha256
+      -days {{ pki_leaf_days }}
+      -CA {{ pki_dir }}/intermediateCA.crt -CAkey {{ pki_dir }}/intermediateCA.key -CAcreateserial
+      -extfile {{ pki_dir }}/{{ item.name }}.ext
+      -out {{ pki_dir }}/{{ item.name }}.crt
+    creates: "{{ pki_dir }}/{{ item.name }}.crt"
+  loop: "{{ pki_server_certs }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Leaf — chaîne complète (fullchain = leaf + intermédiaire)
+  ansible.builtin.shell:
+    cmd: "cat {{ pki_dir }}/{{ item.name }}.crt {{ pki_dir }}/intermediateCA.crt > {{ pki_dir }}/{{ item.name }}.fullchain.crt"
+    creates: "{{ pki_dir }}/{{ item.name }}.fullchain.crt"
+  loop: "{{ pki_server_certs }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Récapitulatif des certificats générés
+  ansible.builtin.debug:
+    msg: >-
+      PKI prête sous {{ pki_dir }} : rootCA.crt, intermediateCA.crt,
+      {{ pki_server_certs | map(attribute='name') | join('.fullchain.crt, ') }}.fullchain.crt

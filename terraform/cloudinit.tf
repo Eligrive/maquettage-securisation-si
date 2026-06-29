@@ -1,75 +1,70 @@
 # cloudinit.tf
-# Construit, par VM, un user_data shell BRUT combinant :
-#   1. Le dépôt des assets PDF (heredoc base64 inline)
-#   2. Le bootstrap commun _bootstrap.sh (sauf fw-legacy)
-#   3. Le script de configuration spécifique scripts/<vm>.sh
+# ============================================================================
+#  user_data MINIMAL par VM — provisioning applicatif délégué à Ansible.
+# ============================================================================
 #
-# Pourquoi PAS le data source `cloudinit_config` (multipart MIME) ?
-# Cloud-init plante sur ShellScriptPartHandler au moment d'enregistrer les
-# parts text/x-shellscript dans /var/lib/cloud/instance/scripts/ (warning
-# "Failed calling handler" dans cloud-init-output.log). Conséquence : les
-# scripts ne sont JAMAIS exécutés en modules:final → les VMs bootent avec
-# une image cloud Ubuntu vanilla, sans Apache/Postfix/MariaDB/… installés.
-# Bug observé sur cloud-init 18.3 (Debian 10) ET 24.4.1 (Ubuntu 24.04).
+# Terraform = infrastructure (VM, réseau segmenté, FIP) + cloud-init minimal.
+# Tout le provisioning logiciel (paquets, config, comptes, leurres, politique
+# pare-feu) est joué par Ansible (cf. ansible/), idempotent et rejouable.
 #
-# Bypass : on envoie un seul shellscript bash brut. Cloud-init le détecte
-# via son shebang (#!/bin/bash) et l'exécute en modules:final sans passer
-# par le ShellScriptPartHandler.
+# cloud-init est réduit au strict nécessaire pour qu'Ansible se connecte :
+#   - VMs métier : hostname (uc-<vm>) + garantie d'un python3.
+#   - firewall central : route par défaut côté transit (pour que sa Floating IP
+#     réponde et que les VMs internes soient atteintes par rebond). Forwarding +
+#     NAT + filtrage inter-VLAN = rôle Ansible fw_central.
+#
+# Pourquoi un shellscript brut et pas cloudinit_config (multipart) ? Cloud-init
+# plante sur ShellScriptPartHandler (Debian 10 ET Ubuntu 24.04) ; le shebang
+# #!/bin/bash est exécuté directement en modules:final.
 
 locals {
-  # Toutes les VMs (IP fixe + postes DHCP)
-  all_vms = merge(local.vms_fixed, local.vms_dhcp)
+  # VMs métier (le firewall central a son propre user_data ci-dessous).
+  all_vms = keys(local.vm_ips)
 
-  # VMs disposant d'un dossier d'assets (assets/<dir>/) à déployer
-  asset_dirs = {
-    srv-moodle     = "srv-moodle"
-    web-rh         = "web-rh"
-    calc-recherche = "calc-recherche"
-    srv-mail       = "srv-mail"
-    poste-dsi      = "poste-dsi"
-  }
-
-  bootstrap_content = file("${path.module}/scripts/_bootstrap.sh")
-
-  # Bloc d'exports FIP_<NAME>=<addr> injectées par Terraform dans le user_data
-  # de chaque VM. Permet aux scripts setup-<vm>.sh de référencer la FIP
-  # d'autres services à l'install (ex: srv-moodle a besoin de FIP_SRV_MOODLE
-  # pour wwwroot Moodle, sinon les clients externes sont redirigés vers l'IP
-  # interne inaccessible).
-  fip_exports = join("\n", concat(
-    ["# FIPs injectées par Terraform (cloudinit.tf)"],
-    [
-      for k, v in openstack_networking_floatingip_v2.public :
-      "export FIP_${replace(upper(k), "-", "_")}=\"${v.address}\""
-    ]
-  ))
-
-  # Bloc shell qui dépose les assets dans /opt/loot. filebase64 retourne
-  # une seule ligne de base64 ; on l'enveloppe dans un heredoc 'EOF_LOOT'
-  # (pas d'interpolation, content base64 ne contient que [A-Za-z0-9+/=]).
-  asset_blocks = {
-    for vm_key in keys(local.all_vms) :
-    vm_key => contains(keys(local.asset_dirs), vm_key) ? join("\n", concat(
-      ["mkdir -p /opt/loot"],
-      [
-        for f in fileset("${path.module}/../assets/${local.asset_dirs[vm_key]}", "*.pdf") :
-        "base64 -d > '/opt/loot/${f}' <<'EOF_LOOT'\n${filebase64("${path.module}/../assets/${local.asset_dirs[vm_key]}/${f}")}\nEOF_LOOT"
-      ]
-    )) : "# (no assets for ${vm_key})"
-  }
-
-  # user_data combiné par VM. fw-legacy garde son script seul (pas de
-  # bootstrap, c'est Debian 10 géré séparément cf. scripts/fw-legacy.sh).
+  # --- Bootstrap minimal générique (Ubuntu) --------------------------------
   user_data = {
-    for vm_key in keys(local.all_vms) :
-    vm_key => vm_key == "fw-legacy" ? file("${path.module}/scripts/fw-legacy.sh") : join("\n\n", [
-      "#!/bin/bash",
-      "# Combined user_data (FIP exports + assets + bootstrap + setup)",
-      "# Bypass du multipart cloudinit_config (cf. cloudinit.tf)",
-      local.fip_exports,
-      local.asset_blocks[vm_key],
-      local.bootstrap_content,
-      file("${path.module}/scripts/${vm_key}.sh"),
-    ])
+    for vm_key in local.all_vms :
+    vm_key => <<-EOT
+      #!/bin/bash
+      # cloud-init minimal — provisioning applicatif délégué à Ansible (cf. ansible/).
+      set -x
+      exec > /var/log/uc-bootstrap.log 2>&1
+      export DEBIAN_FRONTEND=noninteractive
+      hostnamectl set-hostname ${var.resource_prefix}-${vm_key} || true
+      command -v python3 >/dev/null 2>&1 || { apt-get update && apt-get install -y python3; }
+      echo "uc-bootstrap minimal done (${var.resource_prefix}-${vm_key})"
+    EOT
   }
+
+  # --- Bring-up réseau minimal du firewall central -------------------------
+  # Le firewall a un pied sur chaque VLAN (gateway .254) et un pied transit
+  # (.108.1). Le DHCP de chaque VLAN pousserait une route par défaut : on force
+  # la route par défaut côté transit (routeur Neutron .108.254) et on la persiste
+  # via un hook dhclient. Le reste (forwarding, NAT, DNAT, filtrage) = Ansible.
+  firewall_user_data = <<-EOT
+    #!/bin/bash
+    # cloud-init minimal firewall central — route par defaut cote transit.
+    set -x
+    exec > /var/log/uc-bootstrap.log 2>&1
+    export DEBIAN_FRONTEND=noninteractive
+
+    hostnamectl set-hostname ${var.resource_prefix}-srv-firewall || true
+    TRANSIT_GW=${local.transit_gw_ip}
+
+    # Attendre que l'interface transit ait son IP (.108.1) puis forcer la route.
+    for i in $(seq 1 30); do
+      TRANSIT_IF=$(ip -o -4 addr show 2>/dev/null | awk '/${replace(local.fw_transit_ip, ".", "\\.")}\// {print $2; exit}')
+      [ -n "$TRANSIT_IF" ] && break
+      sleep 2
+    done
+
+    # Persistance de la route par défaut via un hook dhclient.
+    mkdir -p /etc/dhcp/dhclient-exit-hooks.d
+    printf '#!/bin/sh\ncase "$reason" in\n  BOUND|RENEW|REBIND|REBOOT) ip route replace default via %s 2>/dev/null || true ;;\nesac\n' "$TRANSIT_GW" > /etc/dhcp/dhclient-exit-hooks.d/uc-override-gateway
+    chmod +x /etc/dhcp/dhclient-exit-hooks.d/uc-override-gateway
+    ip route replace default via "$TRANSIT_GW" 2>/dev/null || true
+
+    command -v python3 >/dev/null 2>&1 || { apt-get update && apt-get install -y python3; }
+    echo "uc-bootstrap minimal firewall done"
+  EOT
 }

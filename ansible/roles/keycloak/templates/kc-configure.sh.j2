@@ -1,0 +1,174 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# ============================================================================
+#  Configuration Keycloak — realm applicatif unicampus (idempotent)
+# ============================================================================
+#  Crée le realm dédié {{ keycloak_realm }} (le realm master reste réservé à
+#  l'admin), ses rôles RBAC, ses groupes, la fédération LDAP et les clients OIDC.
+#  Reprend V2_scripts/setup_ldap.sh + setup_keycloak_client.sh, rendu rejouable
+#  (get-or-create). Émet « CREATED ... » à chaque objet créé (Ansible changed_when).
+set -uo pipefail
+
+COMPOSE="docker compose -f {{ keycloak_dir }}/docker-compose.yml"
+REALM="{{ keycloak_realm }}"
+
+kc() { $COMPOSE exec -T keycloak /opt/keycloak/bin/kcadm.sh "$@"; }
+
+echo "[*] Authentification kcadm (realm admin: {{ keycloak_admin_realm }})..."
+kc config credentials --server http://localhost:8080 --realm {{ keycloak_admin_realm }} \
+  --user "{{ keycloak_admin_user }}" --password "{{ keycloak_admin_password }}"
+
+# ---------------------------------------------------------------------------
+# 1. Realm applicatif dédié (le master n'est utilisé que par l'admin)
+# ---------------------------------------------------------------------------
+if kc get "realms/$REALM" >/dev/null 2>&1; then
+  echo "[=] Realm $REALM déjà présent."
+else
+  echo "CREATED: realm $REALM"
+  kc create realms -s realm="$REALM" -s enabled=true \
+    -s displayName="UniCampus+" -s loginWithEmailAllowed=true
+fi
+
+# ---------------------------------------------------------------------------
+# 2. Rôles realm (RBAC) — cf. matrice IAM
+# ---------------------------------------------------------------------------
+{% for role in keycloak_realm_roles %}
+kc create roles -r "$REALM" -s name="{{ role }}" 2>/dev/null \
+  && echo "CREATED: role {{ role }}" || true
+{% endfor %}
+
+# ---------------------------------------------------------------------------
+# 3. Groupes (organigramme) + assignation du rôle realm
+# ---------------------------------------------------------------------------
+#  REMÉDIATION (logs PostgreSQL : « duplicate key value violates unique
+#  constraint "sibling_names" ... (Etudiants) already exists ») : on ne
+#  recrée PLUS un groupe à l'aveugle. On interroge d'abord l'annuaire
+#  (kcadm get + filtre serveur `search`, confirmé par un nom EXACT) et on ne
+#  crée que s'il est absent. La création n'est donc plus masquée par un
+#  `2>/dev/null || true` : une vraie erreur (réseau, droits) remonte désormais.
+group_exists() {
+  kc get groups -r "$REALM" -q "search=$1" --fields name --format csv 2>/dev/null \
+    | tr -d '"' | grep -qx "$1"
+}
+{% for g in keycloak_groups %}
+if group_exists "{{ g.name }}"; then
+  echo "[=] Groupe {{ g.name }} déjà présent."
+else
+  echo "CREATED: group {{ g.name }}"
+  kc create groups -r "$REALM" -s name="{{ g.name }}"
+fi
+# add-roles est idempotent côté Keycloak (réassigner un rôle déjà présent est un
+# no-op) : on tolère donc un échec « déjà assigné » sans masquer la 1re passe.
+kc add-roles -r "$REALM" --gname "{{ g.name }}" --rolename "{{ g.role }}" 2>/dev/null || true
+{% endfor %}
+
+# ---------------------------------------------------------------------------
+# 4. Fédération LDAP (read-only : on n'importe pas les userPassword V1 faibles)
+# ---------------------------------------------------------------------------
+if [ -z "$(kc get components -r "$REALM" -q name=LDAP-UniCampus --fields id --format csv 2>/dev/null | tr -d '"')" ]; then
+  echo "CREATED: fédération LDAP-UniCampus"
+  kc create components -r "$REALM" \
+    -s name="LDAP-UniCampus" \
+    -s providerId=ldap \
+    -s providerType=org.keycloak.storage.UserStorageProvider \
+    -s 'config.vendor=["other"]' \
+    -s 'config.connectionUrl=["{{ keycloak_ldap_url }}"]' \
+    -s 'config.bindDn=["{{ keycloak_ldap_bind_dn }}"]' \
+    -s 'config.bindCredential=["{{ keycloak_ldap_bind_password }}"]' \
+    -s 'config.usersDn=["{{ keycloak_ldap_users_dn }}"]' \
+    -s 'config.editMode=["READ_ONLY"]' \
+    -s 'config.importEnabled=["true"]' \
+    -s 'config.syncRegistrations=["false"]' \
+    -s 'config.usernameLDAPAttribute=["uid"]' \
+    -s 'config.rdnLDAPAttribute=["uid"]' \
+    -s 'config.uuidLDAPAttribute=["entryUUID"]' \
+    -s 'config.userObjectClasses=["inetOrgPerson"]' \
+    -s 'config.searchScope=["2"]' \
+    -s 'config.trustEmail=["true"]'
+else
+  echo "[=] Fédération LDAP déjà présente."
+fi
+
+# ---------------------------------------------------------------------------
+# 4bis. Group-mapper LDAP : synchronise ou=groups (groupOfNames) vers les
+#       groupes Keycloak du même nom (Etudiants, Professeurs, Equipe_RH, ...).
+#       Comme ces groupes portent déjà un rôle realm (cf. §3), l'appartenance
+#       LDAP -> groupe Keycloak -> rôle RBAC est résolue à chaque connexion
+#       (stratégie LOAD_GROUPS_BY_MEMBER_ATTRIBUTE). C'est ce qui « câble »
+#       réellement les identités de l'annuaire aux autorisations applicatives.
+# ---------------------------------------------------------------------------
+FED_ID="$(kc get components -r "$REALM" -q name=LDAP-UniCampus --fields id --format csv 2>/dev/null | tr -d '"')"
+if [ -n "$FED_ID" ] && [ -z "$(kc get components -r "$REALM" -q name=group-ldap-mapper --fields id --format csv 2>/dev/null | tr -d '"')" ]; then
+  echo "CREATED: group-ldap-mapper"
+  kc create components -r "$REALM" \
+    -s name="group-ldap-mapper" \
+    -s providerId="group-ldap-mapper" \
+    -s providerType="org.keycloak.storage.ldap.mappers.LDAPStorageMapper" \
+    -s parentId="$FED_ID" \
+    -s 'config."groups.dn"=["ou=groups,{{ ldap_base_dn }}"]' \
+    -s 'config."group.name.ldap.attribute"=["cn"]' \
+    -s 'config."group.object.classes"=["groupOfNames"]' \
+    -s 'config."membership.ldap.attribute"=["member"]' \
+    -s 'config."membership.attribute.type"=["DN"]' \
+    -s 'config."membership.user.ldap.attribute"=["uid"]' \
+    -s 'config."mode"=["READ_ONLY"]' \
+    -s 'config."user.roles.retrieve.strategy"=["LOAD_GROUPS_BY_MEMBER_ATTRIBUTE"]' \
+    -s 'config."drop.non.existing.groups.during.sync"=["false"]'
+else
+  echo "[=] group-ldap-mapper déjà présent (ou fédération absente)."
+fi
+
+# ---------------------------------------------------------------------------
+# 5. Clients OIDC (un par application) — get-or-create + mapper de rôles
+# ---------------------------------------------------------------------------
+create_client() {
+  local cid="$1" secret="$2" redirect="$3" with_mapper="$4"
+  local id
+  id="$(kc get clients -r "$REALM" -q clientId="$cid" --fields id --format csv 2>/dev/null | tr -d '"')"
+  if [ -n "$id" ]; then
+    echo "[=] Client $cid déjà présent."
+    return 0
+  fi
+  # redirect peut contenir PLUSIEURS URIs séparées par des espaces (ex. web-rh
+  # est joignable via rh.unicampus.fr ET webrh.unicampus.fr) -> tableau JSON.
+  local uris_json="" sep=""
+  for u in $redirect; do uris_json="${uris_json}${sep}\"$u\""; sep=","; done
+  echo "CREATED: client OIDC $cid"
+  kc create clients -r "$REALM" \
+    -s clientId="$cid" \
+    -s enabled=true \
+    -s publicClient=false \
+    -s secret="$secret" \
+    -s "redirectUris=[$uris_json]" \
+    -s standardFlowEnabled=true \
+    -s directAccessGrantsEnabled=true
+  if [ "$with_mapper" = "yes" ]; then
+    id="$(kc get clients -r "$REALM" -q clientId="$cid" --fields id --format csv | tr -d '"')"
+    kc create "clients/$id/protocol-mappers/models" -r "$REALM" \
+      -s name="roles-mapper" \
+      -s protocol="openid-connect" \
+      -s protocolMapper="oidc-usermodel-realm-role-mapper" \
+      -s 'config."claim.name"="roles"' \
+      -s 'config."jsonType.label"="String"' \
+      -s 'config."id.token.claim"="true"' \
+      -s 'config."access.token.claim"="true"' \
+      -s 'config."multivalued"="true"'
+  fi
+}
+
+create_client "moodle-client"    "{{ oidc_secrets.moodle }}"    "https://moodle.unicampus.fr/auth/oidc/"               "no"
+create_client "roundcube-client" "{{ oidc_secrets.roundcube }}" "https://mail.unicampus.fr/*"     "no"
+create_client "webrh-client"     "{{ oidc_secrets.webrh }}"     "https://webrh.unicampus.fr/auth-callback https://rh.unicampus.fr/auth-callback" "yes"
+create_client "teleport-bastion" "{{ oidc_secrets.teleport }}"  "https://bastion.unicampus.fr/v1/webapi/oidc/callback" "yes"
+# Wazuh dashboard (OpenSearch security OIDC). Le callback du dashboard est
+# {base_redirect_url}/auth/openid/login. with_mapper=yes : le claim `roles`
+# (rôles realm) est requis pour mapper Admin_DSI -> all_access côté indexer.
+create_client "wazuh-client"     "{{ oidc_secrets.wazuh }}"     "https://wazuh.unicampus.fr/auth/openid/login" "yes"
+
+# ---------------------------------------------------------------------------
+# 6. MFA : l'action requise « Configure OTP » est native/active dans le realm.
+#    L'enrôlement par groupe (Equipe_DSI, etc.) reste à activer côté console
+#    (cf. keycloak.md §MFA) pour ne pas verrouiller les comptes pendant le setup.
+# ---------------------------------------------------------------------------
+echo "[*] Configuration Keycloak terminée (realm $REALM)."
+touch "{{ keycloak_configured_marker }}"

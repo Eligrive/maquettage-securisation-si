@@ -1,0 +1,205 @@
+---
+# ============================================================================
+#  Variables communes — lot Supervision (Wazuh + Suricata)
+# ============================================================================
+
+# --- Connexion SSH ----------------------------------------------------------
+# Image cloud Ubuntu : utilisateur par défaut « ubuntu ». La clé privée
+# correspondant à var.ssh_public_key (Terraform) doit être chargée dans
+# l'agent SSH du control node (ou ANSIBLE_PRIVATE_KEY_FILE).
+ansible_user: ubuntu
+
+# Rebond SSH pour atteindre les VMs sans Floating IP.
+#   - Topologie segmentée : bastion (uc-srv-bastion).
+#   - Topologie flat       : FIP de fw-legacy.
+# Format attendu : "ubuntu@<FIP_du_jump>". Vide = connexion directe (ex: le
+# SIEM joint par sa propre FIP). Surchargé par la CI ou par -e ssh_jump_host=...
+ssh_jump_host: ""
+
+# --- En-tête « généré par Ansible » -----------------------------------------
+# Le module ansible.builtin.copy NE fournit PAS la variable magique
+# 'ansible_managed' dans le templating de 'content:' (contrairement au module
+# template). On la définit donc explicitement, sinon les en-têtes
+# « # {{ ansible_managed }} » des fichiers générés par copy (web_rh, srv_mail,
+# srv_roundcube, backups) lèvent « 'ansible_managed' is undefined ».
+ansible_managed: "Fichier géré par Ansible (projet UniCampus) — ne pas éditer à la main."
+
+# ============================================================================
+#  Comptes — durcissement V2 (remédiation §2.5)
+# ============================================================================
+# Le compte d'admin PARTAGÉ 'dsi' (admin2024, sudo NOPASSWD, diffusé en clair
+# par mail) est SUPPRIMÉ de tous les hôtes au profit de comptes nominatifs +
+# accès via le bastion. Consommé par le rôle maquette_accounts.
+maquette_accounts_absent:
+  - dsi
+
+# Mot de passe local de l'administrateur DSI nominatif (jmoreau). N'est utilisé
+# que pour le sudo local / console de secours : l'accès distant se fait via le
+# bastion (SSO), et l'auth SSH par mot de passe est désactivée (rôle common V2).
+admin_dsi_password: "DSI-jmoreau-2026!"
+
+# --- Version Wazuh ----------------------------------------------------------
+# Branche majeure utilisée pour le dépôt APT (agents) et l'installeur assisté
+# (manager all-in-one).
+wazuh_version: "4.9"
+
+# Adresse que les AGENTS utilisent pour joindre le manager (events 1514,
+# enrôlement 1515). En segmenté = IP SOC du SIEM ; en flat = IP campus.
+# Peut être surchargée par l'inventaire (cf. hosts.flat.ini) ou la CI.
+wazuh_manager_address: "192.168.109.1"
+
+# ============================================================================
+#  Lot V2 — Sauvegardes immuables (restic) — §5.2 / M22
+# ============================================================================
+# Secret PARTAGÉ du dépôt restic UNIQUE (cf. backups.yml). Centralisé ici car il
+# est utilisé des DEUX côtés :
+#   - le SERVEUR (rôle backup_server) initialise le dépôt sur disque local avec
+#     ce mot de passe (l'init via HTTP est impossible : le rest-server est en
+#     --append-only et refuse toute écriture sur un dépôt existant) ;
+#   - les CLIENTS (rôle backups) l'utilisent pour chiffrer et déposer.
+# Même valeur des deux côtés (dépôt restic unique, distingué par --tag uc-<host>).
+# ⚠️ Secret en clair ASSUMÉ (maquette) ; en prod -> ansible-vault.
+backup_password: "UniCampus_Restic_2026_Immutable"
+
+# ============================================================================
+#  Lot V2 — IAM (Keycloak SSO + bastion Teleport) & PKI interne
+# ============================================================================
+#  Variables PARTAGÉES par les rôles pki / reverse_proxy / keycloak /
+#  srv_roundcube / bastion / teleport_agent / oidc des applis.
+#  cf. docs/V2/IAM.md, docs/V2/keycloak.md, docs/V2/PKI.md.
+#
+#  ⚠️ Secrets en clair ASSUMÉS : maquette pédagogique. En production ils
+#  iraient dans ansible-vault. Ils reprennent volontairement les valeurs des
+#  scripts de référence V2_scripts/ pour rester cohérents (« ne pas trop
+#  changer la partie IAM »).
+
+# --- Domaines & entrée web --------------------------------------------------
+# unicampus.fr = noms publics des services web (servis en HTTPS par le reverse
+# proxy). unicampus.local = domaine interne LDAP/mail historique (V1).
+unicampus_public_domain: "unicampus.fr"
+unicampus_internal_domain: "unicampus.local"
+
+# IP du reverse proxy = le firewall central lui-même (nginx y est hébergé,
+# cf. choix d'archi). Côté interne, tous les FQDN *.unicampus.fr résolvent ici
+# (rôle unicampus_dns) ; côté Internet ils résolvent vers sa Floating IP.
+reverse_proxy_ip: "192.168.108.1"
+
+# FQDN publics -> backend interne (HTTP en clair derrière le proxy qui termine
+# le TLS). Consommé par le rôle reverse_proxy (nginx) et unicampus_dns.
+iam_vhosts:
+  - { fqdn: "sso.unicampus.fr", backend: "http://192.168.107.3:8080" }       # Keycloak
+  - { fqdn: "moodle.unicampus.fr", backend: "http://192.168.107.1:80" }      # Moodle
+  - { fqdn: "mail.unicampus.fr", backend: "http://192.168.107.2:80" }        # Roundcube
+  - { fqdn: "rh.unicampus.fr", backend: "http://192.168.104.2:80" }          # Web RH
+  - { fqdn: "webrh.unicampus.fr", backend: "http://192.168.104.2:80" }       # Web RH (alias redirect OIDC)
+  - { fqdn: "bastion.unicampus.fr", backend: "https://192.168.103.2:3080" }  # Teleport (TLS interne)
+  - { fqdn: "wazuh.unicampus.fr", backend: "https://192.168.109.1:443" }     # Wazuh dashboard (TLS interne self-signed -> proxy_ssl_verify off)
+
+# --- Keycloak ---------------------------------------------------------------
+keycloak_internal_ip: "192.168.107.3"
+keycloak_admin_user: "admin"
+keycloak_admin_password: "Mon_mot_de_passe"
+keycloak_db_password: "password"
+
+# Realm APPLICATIF dédié : utilisateurs (fédérés LDAP), clients OIDC, rôles et
+# groupes RBAC y vivent. Le realm `master` est STRICTEMENT réservé à
+# l'administration technique de Keycloak (login de l'admin via kcadm/console).
+keycloak_realm: "unicampus"
+keycloak_admin_realm: "master" # realm d'authentification de l'admin (kcadm)
+keycloak_issuer_url: "https://sso.unicampus.fr/realms/{{ keycloak_realm }}"
+
+# Rôles realm (RBAC) consommés par les mappers OIDC, Teleport (claims_to_roles)
+# et le portail Web RH (REQUIRED_REALM_ROLE). cf. matrice docs/V2/IAM.md.
+keycloak_realm_roles:
+  - Etudiant
+  - Professeur
+  - Chercheur
+  - Admin_DSI
+  - Admin_DBA
+  - Admin_RH
+  - Externe
+
+# Groupes (organigramme) -> rôle realm assigné automatiquement aux membres.
+# Le rattachement des utilisateurs fédérés aux groupes se fait en console
+# (ou via un group-mapper LDAP). cf. docs/V2/keycloak.md (§Groups).
+keycloak_groups:
+  - { name: "Etudiants", role: "Etudiant" }
+  - { name: "Professeurs", role: "Professeur" }
+  - { name: "Chercheurs", role: "Chercheur" }
+  - { name: "Equipe_DSI", role: "Admin_DSI" }
+  - { name: "Equipe_DBA", role: "Admin_DBA" }
+  - { name: "Equipe_RH", role: "Admin_RH" }
+  - { name: "Intervenants_Externes", role: "Externe" }
+
+# Fédération LDAP (read-only : on n'importe pas les userPassword V1 faibles ;
+# reset forcé au 1er login via l'action requise UPDATE_PASSWORD).
+keycloak_ldap_url: "ldap://192.168.104.1:389"
+keycloak_ldap_bind_dn: "cn=admin,{{ ldap_base_dn }}"
+keycloak_ldap_bind_password: "{{ ldap_admin_password }}"
+keycloak_ldap_users_dn: "ou=people,{{ ldap_base_dn }}"
+
+# Base DN LDAP (aussi défini dans le rôle srv_ldap ; centralisé ici pour les
+# rôles IAM qui n'ont pas srv_ldap dans leurs dépendances).
+ldap_base_dn: "dc=unicampus,dc=local"
+ldap_admin_password: "unicampus2024"
+
+# --- Secrets OIDC (clients Keycloak <-> applis) -----------------------------
+oidc_secrets:
+  moodle: "Secret_Moodle_OIDC_2024_Ultra_Securise"
+  roundcube: "Secret_Roundcube_OIDC_2024_Ultra_Securise"
+  webrh: "Secret_WebRH_OIDC_2026_Ultra_Securise"
+  teleport: "Secret_Teleport_OIDC_2024_Ultra_Securise"
+  wazuh: "Secret_Wazuh_OIDC_2026_Ultra_Securise"
+
+# --- Bastion Teleport -------------------------------------------------------
+teleport_version: "15"
+teleport_bastion_ip: "192.168.103.2"
+# Jeton de jointure pré-partagé (maquette). En prod : tokens éphémères tctl.
+teleport_join_token: "Token_De_Jointure_Teleport_V2_UniCampus_2026"
+
+# ============================================================================
+#  PKI interne (Root CA offline + CA intermédiaire + certs serveurs fullchain)
+# ============================================================================
+#  Générée CÔTÉ CONTRÔLEUR par le rôle pki (openssl, idempotent). Les clés
+#  privées restent sous {{ pki_dir }} (gitignored) et ne sont JAMAIS commitées.
+#  Le rootCA.crt est distribué à tous les hôtes comme ancre de confiance.
+pki_dir: "{{ playbook_dir }}/pki"
+pki_subject_country: "FR"
+pki_subject_state: "Ile-de-France"
+pki_subject_locality: "Paris"
+pki_subject_org: "UniCampus"
+
+# Certificats serveurs (leaf) émis par la CA intermédiaire.
+#   name      : préfixe des fichiers ({{ pki_dir }}/<name>.{key,crt,fullchain.crt})
+#   cn        : Common Name
+#   sans      : Subject Alternative Names (DNS)
+pki_server_certs:
+  # Certificat multi-SAN porté par nginx sur le firewall (toutes les apps web).
+  - name: "reverse-proxy"
+    cn: "sso.unicampus.fr"
+    sans:
+      - "sso.unicampus.fr"
+      - "moodle.unicampus.fr"
+      - "mail.unicampus.fr"
+      - "rh.unicampus.fr"
+      - "webrh.unicampus.fr"
+      - "bastion.unicampus.fr"
+      - "wazuh.unicampus.fr"
+  # LDAPS (port 636) sur uc-srv-ldap.
+  - name: "ldap"
+    cn: "srv-ldap.unicampus.local"
+    sans:
+      - "srv-ldap.unicampus.local"
+      - "uc-srv-ldap"
+  # Postfix/Dovecot (SMTPS/IMAPS) sur uc-srv-mail.
+  - name: "mail"
+    cn: "mail.unicampus.fr"
+    sans:
+      - "mail.unicampus.fr"
+      - "smtp.unicampus.fr"
+      - "uc-srv-mail"
+  # Certificat propre au bastion Teleport (TLS interne 3080, proxifié par nginx).
+  - name: "bastion"
+    cn: "bastion.unicampus.fr"
+    sans:
+      - "bastion.unicampus.fr"

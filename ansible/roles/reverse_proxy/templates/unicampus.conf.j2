@@ -1,0 +1,55 @@
+# {{ ansible_managed }}
+# ============================================================================
+#  Reverse proxy UniCampus V2 — terminaison TLS (PKI interne) + SSO
+# ============================================================================
+#  Généré depuis iam_vhosts (group_vars/all.yml). nginx tourne sur le firewall
+#  central : il termine le HTTPS avec le certificat multi-SAN de la PKI interne
+#  puis relaie en clair vers les backends internes (HTTP), sauf le bastion
+#  Teleport relayé en HTTPS (TLS interne).
+
+# Redirection HTTP -> HTTPS pour tous les FQDN.
+server {
+    listen 80 default_server;
+    server_name {{ iam_vhosts | map(attribute='fqdn') | join(' ') }};
+    return 301 https://$host$request_uri;
+}
+
+{% for vhost in iam_vhosts %}
+# --- {{ vhost.fqdn }} -> {{ vhost.backend }} ---
+server {
+    listen 443 ssl;
+    server_name {{ vhost.fqdn }};
+
+    ssl_certificate     {{ reverse_proxy_cert_path }};
+    ssl_certificate_key {{ reverse_proxy_key_path }};
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+
+    client_max_body_size {{ reverse_proxy_client_max_body_size }};
+
+    location / {
+        proxy_pass {{ vhost.backend }};
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host  $host;
+        proxy_set_header X-Forwarded-Port  $server_port;
+
+        # Support WebSocket (Teleport, notifications Moodle, etc.).
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection "upgrade";
+{% if vhost.backend.startswith('https') %}
+
+        # Backend en HTTPS (TLS interne du bastion Teleport) : la chaîne PKI est
+        # de confiance, mais le SNI/hostname interne ne correspond pas — on ne
+        # revérifie pas le certificat côté proxy (lien déjà chiffré).
+        proxy_ssl_verify off;
+        proxy_ssl_server_name on;
+{% endif %}
+    }
+}
+
+{% endfor %}
